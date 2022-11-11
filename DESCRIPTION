@@ -1,0 +1,20 @@
+Package: SUBSET
+Title: SUBspace Shrinkage via Exponential Tilting
+Version: 0.0.0.9000
+Authors@R: 
+    person(given = "Daniel K.",
+           family = "Sewell",
+           role = c("aut", "cre"),
+           email = "daniel-sewell@uiowa.edu",
+           comment = c(ORCID = "0000-0002-9238-4026"))
+Description: SUBSET takes a base prior \pi_0 and tilts it towards a linear subspace via the multiplicative term e^{-\frac{v}{2}\theta'(I-P)\theta}. The user must perform the initial Bayesian inference for this base prior, and compute the posterior mean and covariance. *It is imperative that the necessary conditions for an asymptotic normal approximation of the posterior hold for the base prior.* 
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.1
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
+Imports: mvtnorm, splines, graphics, methods, stats, utils, grDevices, Matrix, parallel

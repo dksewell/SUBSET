@@ -1,0 +1,286 @@
+---
+title: "SUBspace Shrinkage via Exponential Tilting"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{SUBspace Shrinkage via Exponential Tilting}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 12,
+  fig.height = 8
+)
+```
+
+```{r setup}
+library(SUBSET)
+```
+
+
+# Set up
+
+The data analyzed in this pedagogical example come from 
+>Sung, K-C, Sung, JH, Cho, EJ, et al. Efficacy and safety of low-dose antihypertensive combination of amlodipine, telmisartan, and chlorthalidone: A randomized, double-blind, parallel, phase II trial. J Clin Hypertens. 2022; 24: 1298– 1309. https://doi.org/10.1111/jch.14570
+
+This study aimed to understand the effect of The aim of this clinical trial was to assess the efficacy and safety of low-dose triple combinations of amlodipine, telmisartan, and chlorthalidone on hypertension.  From this paper, we have the following summary statistics, where *N* is the number of subjects per treatment arm, *m* is the sample mean, and *s2* is the sample variance, which we will rescale for use in obtaining the posterior.
+
+```{r}
+N = c(25,25,25,25)
+m = -c(2.63, 15.25, 14.77, 18.63)
+s2 = c(11.97, 17.47, 15.22, 13.73)^2
+s2_N = s2 * (N - 1) / N^2
+labs = c("Placebo", "Quarter-dose","Third-dose","Half-dose")
+```
+
+# Model
+Here is the model set up for the base prior:
+\[
+y_i|trtmnt=k,\boldsymbol{\mu},\boldsymbol{\tau} \sim N(\mu_k,\tau_k), \\
+\mu_k|\boldsymbol{\tau} \overset{ind}{\sim} N(a_0, b_0\tau_k), \\
+\tau_k \overset{ind}{\sim} \Gamma(c_0/2,d_0/2),
+\]
+which leads to the following posterior for $(\mu_1,\ldots,\mu_4)$:
+\[
+\mu_k | \boldsymbol{y} \overset{ind}{\sim} t_{c_k}\left(a_k, \frac{d_k}{b_k c_k}\right), 
+\]
+where
+\[
+a_k := \frac{b_0a_0 + N_k\bar y_k}{b_0 _ N_k}, \\
+b_k := b_0 + N_k,\\
+c_k := c_0 + N_k, \\
+d_k := d_0 + \frac{b_0N_k}{b_0 + N_k}(\bar y_k - a_0)^2 + N_k s_k^2.
+\]
+
+We'll set the hyperparameters to be
+```{r}
+a0 = -5
+b0 = 1
+c0 = 3
+d0 = 75
+```
+leading to the following updated posterior parameters:
+```{r}
+a_new = (b0 * a0 + N * m) / (b0 + N)
+b_new = b0 + N
+c_new = c0 + N
+d_new = d0 + b0 * N / (b0 + N) * (m - a0)^2 + N * s2_N
+```
+
+We can get prior samples and posterior samples corresponding to the base prior by
+```{r}
+library(extraDistr)
+
+n_draws = 5e3
+set.seed(2022)
+pi0_prior =
+  sapply(1:4,
+         function(j) rlst(n_draws, 
+                          df = c0,
+                          mu = a0,
+                          sigma = sqrt(d0 / b0 / c0))
+  )
+
+set.seed(2022)
+pi0_posterior = 
+  sapply(1:4,
+         function(j) rlst(n_draws, 
+                          df = c_new[j],
+                          mu = a_new[j],
+                          sigma = sqrt(d_new[j] / b_new[j] / c_new[j]))
+  )
+colnames(pi0_prior) = 
+  colnames(pi0_posterior) = 
+  labs
+```
+
+
+# Adding the exponential tilting
+It's reasonable to assume that (1) there is some placebo effect, and (2) that the dosage effect is smooth and monotonic, perhaps following some polynomial effect on top of the placebo effect. Hence let's consider the linear subspace spanned by
+\[
+\begin{pmatrix}
+1 & 0^\phi \\
+1 & \frac1{4^{\phi}} \\
+1 & \frac1{3^\phi} \\
+1 & \frac1{2^\phi} 
+\end{pmatrix}.
+\]
+
+Let's create the corresponding function to create such a projection matrix.
+```{r}
+P_phi = function(x) Proj(cbind(1,c(0,1/4,1/3,1/2)^x))
+```
+
+A reasonable prior assuming we are likely to see something close to a linear trend would be
+```{r}
+prior_phi = list(d = function(x) dgamma(x,shape = 2,rate = 2),
+                 r = function(n = 1) rgamma(n,shape = 2,rate = 2))
+curve(prior_phi$d(x),
+      from = 0,
+      to = 6,
+      bty = 'l',
+      lwd = 2,
+      ylab = '',
+      xlab = expression(phi))
+```
+
+If we presume that there is a linear relationships between the change in BP and dose, then our projection matrix would be
+```{r}
+( P_linear =
+    Proj(cbind(1,c(0,1/4,1/3,1/2))) )
+```
+
+# Inference
+
+## Fixed
+Using the fixed [linear] subspace, we can make inference via
+```{r}
+doseresponse_fixed = 
+  SUBSET_fixed(Mean0 = colMeans(pi0_posterior),
+               Sigma0 = cov(pi0_posterior),
+               Proj_mat = P_linear,
+               v_sequence = seq(0.1,2,by = 0.1))
+
+print(doseresponse_fixed)
+```
+
+```{r}
+plot.subset_fixed(doseresponse_fixed)
+```
+
+
+## Flexible subspace
+Instead of fixing the projection matrix to project onto the linear subspace, we can estimate the exponent through a Gibbs sampler:
+
+```{r}
+set.seed(2022)
+doseresponse_draws = 
+  SUBSET_gibbs(Mean0 = colMeans(pi0_posterior),
+               Sigma0 = cov(pi0_posterior),
+               pi0_samples = pi0_prior,
+               P_phi = P_phi,
+               prior_phi = prior_phi,
+               v_sequence = seq(0.1,2,by = 0.1),
+               Z_approximation = list(df = 25 + 1,
+                                      phi_range = c(1e-3,5)),
+               verbose = FALSE)
+```
+
+```{r}
+summary.subset_gibbs(doseresponse_draws)
+```
+
+Or if you only wanted to look at the results for a specific value of $v$:
+```{r}
+doseresponse_draws$v_sequence[5]
+summary.subset_gibbs(doseresponse_draws, v_index = 5) 
+```
+
+Now we can look at the trace plots
+```{r}
+plot.subset_gibbs(doseresponse_draws, type = "trace")
+```
+
+or the cumulative mean plots to better separate the chains corresponding to each value of v
+```{r}
+plot.subset_gibbs(doseresponse_draws, type = "cummean")
+```
+We can look at the posterior distributions of the parameters of interest:
+```{r}
+doseresponse_draws$v_sequence[5]
+plot.subset_gibbs(doseresponse_draws, type = "theta", v_index = 5)
+```
+
+Or look to see how the posterior distribution of $\phi$ changes based on the value of $v$.
+```{r}
+plot.subset_gibbs(doseresponse_draws, type = "phi")
+```
+
+Finally, we can look at the change in the credible intervals as we change $v$:
+```{r}
+plot.subset_gibbs(doseresponse_draws, type = "transition")
+```
+
+
+Now we can compare the reasonableness of our results compared to those obtained from the base prior.  Let's select $v= 0.5$.  
+
+Under the base prior, we have:
+```{r}
+mean(pi0_posterior[,"Placebo"] > pi0_posterior[,"Quarter-dose"]); cat("\nReasonable\n\n")
+mean(pi0_posterior[,"Placebo"] > pi0_posterior[,"Third-dose"]); cat("\nReasonable\n\n")
+mean(pi0_posterior[,"Placebo"] > pi0_posterior[,"Half-dose"]); cat("\nReasonable\n\n")
+mean(pi0_posterior[,"Quarter-dose"] > pi0_posterior[,"Third-dose"]); cat("\nUneasonable!\n\n")
+mean(pi0_posterior[,"Quarter-dose"] > pi0_posterior[,"Half-dose"]); cat("\nReasonable\n\n")
+mean(pi0_posterior[,"Third-dose"] > pi0_posterior[,"Half-dose"]); cat("\nReasonable\n\n")
+```
+
+
+Under the exponentially tilted prior, we have:
+```{r}
+v_index = which(doseresponse_draws$v_sequence == 0.5)
+
+mean(doseresponse_draws$samples[,"Placebo",v_index] > doseresponse_draws$samples[,"Quarter-dose",v_index]); cat("\nReasonable\n\n")
+mean(doseresponse_draws$samples[,"Placebo",v_index] > doseresponse_draws$samples[,"Third-dose",v_index]); cat("\nReasonable\n\n")
+mean(doseresponse_draws$samples[,"Placebo",v_index] > doseresponse_draws$samples[,"Half-dose",v_index]); cat("\nReasonable\n\n")
+mean(doseresponse_draws$samples[,"Quarter-dose",v_index] > doseresponse_draws$samples[,"Third-dose",v_index]); cat("\nReasonable\n\n")
+mean(doseresponse_draws$samples[,"Quarter-dose",v_index] > doseresponse_draws$samples[,"Half-dose",v_index]); cat("\nReasonable\n\n")
+mean(doseresponse_draws$samples[,"Third-dose",v_index] > doseresponse_draws$samples[,"Half-dose",v_index]); cat("\nReasonable\n\n")
+```
+
+
+
+## Prior sensitivity
+Let's check the sensitivity to the prior on $\phi$, by replacing the $\Gamma(2,2)$ with $Unif(0,3)$.
+```{r}
+set.seed(2022)
+doseresponse_draws_unif = 
+  SUBSET_gibbs(Mean0 = colMeans(pi0_posterior),
+               Sigma0 = cov(pi0_posterior),
+               pi0_samples = pi0_prior,
+               P_phi = P_phi,
+               prior_phi = list(r = function(n=1) runif(n,0,3)),
+               v_sequence = seq(0.1,2,by = 0.1),
+               Z_approximation = list(df = 25 + 1,
+                                      phi_range = c(1e-3,5)),
+               verbose = FALSE)
+```
+
+As we can see from the plots below, the posterior is not sensitive to the prior on $\phi$.
+```{r}
+doseresponse_draws_unif$v_sequence[5]
+hist(doseresponse_draws_unif$samples[,5,5],
+     freq = FALSE,
+     main = "", 
+     ylab = "",
+     yaxt = "n",
+     xlab = expression(phi),
+     ylim = c(0,1.45))
+lines(density(doseresponse_draws$samples[,5,5],
+              from = 0, 
+              adjust = 2),
+      lwd = 2,
+      col = "steelblue")
+legend("topright",
+       bty = 'n',
+       cex = 1.5,
+       pch = c(15,NA),
+       col = c(gray(0.5), "steelblue"),
+       pt.cex = 2,
+       lwd = 3,
+       lty = c(NA,1),
+       legend = c("Post. under uniform prior","Post. under Gamma prior"))
+```
+
+
+```{r}
+plot.subset_gibbs(doseresponse_draws_unif, type = "transition")
+```
+
+
+
+
+
+
