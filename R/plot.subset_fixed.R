@@ -37,7 +37,7 @@ plot.subset_fixed = function(x,
     for(j in 1:p){
       x_subset = x[which(x$variable == vars[j]),]
       polygon(x = c(x_subset$v,rev(x_subset$v)),
-              y = c(x_subset$`2.5%`,rev(x_subset$`97.5%`)),
+              y = c(x_subset[,4],rev(x_subset[,5])),
               border = FALSE,
               col = adjustcolor(MetBrewer::met.brewer("Austria",p)[j],0.3))
     }
