@@ -198,7 +198,7 @@ SUBSET_gibbs_discrete = function(Mean0,
                   sigma = Sigma)
         )
       
-      setTxtProgressBar(pb,it)
+      if(verbose) setTxtProgressBar(pb,it)
     }
     
     
