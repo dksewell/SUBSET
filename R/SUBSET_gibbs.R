@@ -33,12 +33,12 @@
 #' @param n_draws positive integer of how many posterior 
 #' samples are desired.
 #' @param pi0_samples Samples of the model parameters 
-#' from the *prior* (not including phi)
+#' from the * base prior* (not including phi)
 #' @param P_phi Either (1) a function taking in a scalar and returning 
 #' a projection matrix for the model parameters; or (2) "power" 
 #' in which case the projection matrix will correspond to 
 #' span((1,1,...)',(1^x,2^x,...)'); or (3) "geometric" in 
-#' which case the projection matrix will corrspond to 
+#' which case the projection matrix will correspond to 
 #' span((1,1,...)',(x^1,x^2,...)').
 #' @param prior_phi list with named argument "r".  prior_phi$r(n) 
 #' should provide n random draws from the prior on phi.
@@ -135,6 +135,7 @@ SUBSET_gibbs = function(Mean0,
   }
   samples[1,,1] = c(Mean0,prior_phi$r())
   
+  # Get exact (actually, this is MC) method for computing Z_{\nu,\phi}
   if(missing(cl)){
     Z_exact = function(I_m_P,V){
       mean(
@@ -224,14 +225,13 @@ SUBSET_gibbs = function(Mean0,
     
     if(v > 1) samples[1,,v] = samples[1,,v - 1]
     P_old = P(samples[1,p+1,v])
-    # P_orth_old = diag(p) - P_old
     Z_old = Z(samples[1,p + 1,v])
     cat("\nPerforming Gibbs Sampling\n")
     if(verbose) pb = txtProgressBar(0,n_draws,style=3)
     for(it in 2:n_draws){
       
       # Draw phi from prior
-      phi_proposal = prior_phi$r()
+      phi_proposal = prior_phi$r(1)
       P_new = P(phi_proposal)
       # P_orth_new = diag(p) - P_new
       Z_new = Z(phi_proposal)

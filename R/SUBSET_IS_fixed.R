@@ -19,25 +19,42 @@
 #' *Note that that the parameter space must be convex.* (It usually is.)
 #' 
 #' 
-#' @param Mean0 vector. The posterior mean corresponding
-#' to the base prior (i.e., untilted prior).
-#' @param Sigma0 matrix. The posterior covariance 
-#' matrix corresponding to the base prior. NOTE: The
-#' variable names are extracted from Sigma0, so use 
-#' colnames(Sigma0) = ...
+#' @param draws0 matrix. The posterior draws  
+#' corresponding to the base prior.
 #' @param Proj_mat matrix.  Projection matrix for the 
 #' desired linear subspace you wish to shrink towards.
 #' @param v_sequence vector of positive values. See details.
 #' @param CI_level numeric between (0,1). Level of the 
 #' posterior credible interval.
+#' @param min_ESS integer.  Minimum number of effective sample size. WARNING:
+#' Don't make this too high, or you risk not representing the full parameter space well.
+#' @param n_u_values Number of values to try for u, the hyperparameter that 
+#' shrinks the proposal distribution towards the linear subspace.
 #' @param verbose logical. Should any output be provided?  Note that
 #' this is typically very fast, so usually not needed.
 #' 
 #' @examples 
-#' post_mean_from_pi0 = c(1,1.5)
-#' post_cov_from_pi0 = diag(c(1,3))
-#' P = Proj(rep(1,2))
-#' SUBSET_fixed(Mean0 = post_mean_from_pi0, Sigma = post_cov_from_pi0, Proj_mat = P, v_sequence = c(0.5,100))
+#' theta_true = c(1,1.5)
+#' N = 50
+#' y = rmvnorm(N,theta_true,diag(2))
+#' P = Proj(c(1,1))
+#' posterior_Sigma = function(nu){
+#'   chol2inv(chol((N+1) * diag(2) + nu * (diag(2) - P)))
+#' }
+#' posterior_mu = function(nu){
+#'   N * posterior_Sigma(nu) %*% colMeans(y)
+#' }
+#' ndraws = 1e4
+#' draws0 = 
+#'   rmvnorm(ndraws,posterior_mu(0),posterior_Sigma(0))
+#' tilted_post = 
+#'   SUBSET_IS_fixed(draws0,
+#'                   Proj_mat = P,
+#'                   v_sequence = seq(5,50,by = 5),
+#'                   CI_level = 0.95,
+#'                   min_ESS = 1/2 * nrow(draws0),
+#'                   n_u_values = 100,
+#'                   verbose = TRUE)
 #' 
 
 
@@ -47,7 +64,7 @@ SUBSET_IS_fixed = function(draws0,
                            CI_level = 0.95,
                            min_ESS = 1/2 * nrow(draws0),
                            n_u_values = 100,
-                           verbose = FALSE){
+                           verbose = TRUE){
   CI_level = 1 - CI_level
   p = ncol(draws0)
   v_len = length(v_sequence)
@@ -97,16 +114,29 @@ SUBSET_IS_fixed = function(draws0,
     
     Tnu = TT(v_sequence[v])
     
-    ESS_values = 
-      sapply(seq(0,1,l = n_u_values+1)[-1],ESS,Tnu = Tnu)
-    u = seq(0,1,l=n_u_values)[max(which(ESS_values > min_ESS))]
-    results[[v]]$ESS = ESS_values[max(which(ESS_values > min_ESS))]
+    u_seq = 
+      seq(1,0,l = n_u_values+1)[-1]
+    for(uu in u_seq){
+      ESS_value = 
+        ESS(uu,Tnu)
+      if(ESS_value > min_ESS){
+        u = uu
+        break
+      }
+    }
+    results[[v]]$ESS = ESS_value
     results[[v]]$u = u
+    
+    # ESS_values = 
+    #   sapply(seq(0,1,l = n_u_values+1)[-1],ESS,Tnu = Tnu)
+    # u = seq(0,1,l=n_u_values)[max(which(ESS_values > min_ESS))]
+    # results[[v]]$ESS = ESS_values[max(which(ESS_values > min_ESS))]
+    # results[[v]]$u = u
     
     draws_u[[v]] = 
       cbind(u * draws0 + (1 - u) * draws0 %*% Proj_mat,
             weight = Tnu / sum(Tnu))
-    if(!is.null(colnames(draws0))) colnames(draws_u)[1:p] = colnames(draws0)
+    if(!is.null(colnames(draws0))) colnames(draws_u[[v]])[1:p] = colnames(draws0)
     
     results[[v]]$mean = 
       apply(draws_u[[v]][,1:p], 2, weighted.mean, w = draws_u[[v]][,"weight"])
@@ -134,6 +164,7 @@ SUBSET_IS_fixed = function(draws0,
     }
     
   }
+  names(draws_u) = v_sequence
   
   results = do.call(rbind,results)
   
