@@ -110,7 +110,7 @@ SUBSET_gibbs = function(Mean0,
     }
     if(P_phi == "geometric"){
       P = function(x) Proj(cbind(1,x^(-c(1:p))))
-      if(missing(prior_phi)) prior_phi = function(x) list(d = function(x) dbeta(x,2,2), #Keeping the d in case I later allow a different proposal than the prior
+      if(missing(prior_phi)) prior_phi = function(x) list(d = function(x) dbeta(x,2,2),
                                                           r = function(n = 1) rbeta(n,2,2))
     }
   }else{

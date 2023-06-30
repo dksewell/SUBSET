@@ -60,26 +60,31 @@ if(FALSE){
 set.seed(2023)
 
 ## Set true response rates
-true_response_rates = c(0.1,0.25,0.4)
+true_response_rates = 
+  c(0.05,0.1,0.15,0.2,0.3,0.4,0.55,0.7)
 
 ## Simulate data
 N = 50
-y = rbinom(3,N,true_response_rates)
+y = rbinom(length(true_response_rates),N,true_response_rates)
 
 ## Draws from the base prior
 ## (Using Jeffrey's prior on p_1, p_2, and p_3)
 ndraws = 1e4
 
 pi0_samples = 
-  cbind(p1 = rbeta(ndraws,1/2,1/2),
-        p2 = rbeta(ndraws,1/2,1/2),
-        p3 = rbeta(ndraws,1/2,1/2)) 
+  matrix(rbeta(ndraws*length(true_response_rates),1/2,1/2),
+         ndraws,
+         length(true_response_rates))
 
 ## Get posterior draws corresponding to the base prior
-draws0 = 
-  cbind(p1 = rbeta(ndraws,1/2 + y[1], 1/2 + N - y[1]),
-        p2 = rbeta(ndraws,1/2 + y[2], 1/2 + N - y[2]),
-        p3 = rbeta(ndraws,1/2 + y[3], 1/2 + N - y[3])) 
+draws0 = NULL
+for(j in 1:length(true_response_rates)){
+  draws0 = 
+    cbind(draws0,
+          rbeta(ndraws,1/2 + y[j], 1/2 + N - y[j])
+    )
+}
+colnames(draws0) = paste("p",1:length(true_response_rates),sep="")
 
 ## Get posterior draws corresponding to the tilted prior
 library(parallel)
@@ -88,14 +93,50 @@ draws_tilted =
   SUBSET_IS_gibbs(draws0,
                   pi0_samples,
                   P_phi = "power",
+                  prior_phi = list(d = function(x) dgamma(x,shape = 2,rate = 1),
+                                   q = function(p) qgamma(p,shape = 2,rate = 1),
+                                   r = function(n = 1) rgamma(n,shape = 2,rate = 1)),
+                  phi_sequence = 10,
                   v_sequence = c(5,10,20,40),
-                  Z_approximation = list(df = 10 + 1,
-                                         phi_range = NULL),
                   cl = cl)
+stopCluster(cl)
+
+library(tidyverse);library(magrittr)
+phi_distribution = 
+  draws_tilted$phi_pmf %>% 
+  as_tibble() %>% 
+  mutate(phi_sequence = round(phi_sequence,3))
+for(v in 1:length(draws_tilted$v_sequence)){
+  temp = 
+    prop.table(table(draws_tilted$samples[,length(true_response_rates) + 1,v]))
+  temp = 
+    tibble(phi_sequence = as.numeric(names(temp)),
+           v1 = as.numeric(temp)) %>% 
+    mutate(phi_sequence = round(phi_sequence,3))
+  phi_distribution = 
+    left_join(phi_distribution,
+              temp,
+              by = "phi_sequence")
+}
+names(phi_distribution) = 
+  c("phi_sequence","prior",paste("v",as.character(draws_tilted$v_sequence),sep=""))
+plot(v40 ~ phi_sequence,
+     data = phi_distribution,
+     type = 'l',
+     lwd = 2,
+     col = gray(seq(0.2,0.8,l=ncol(phi_distribution))[ncol(phi_distribution)]))
+for(j in 1:(ncol(phi_distribution)-1)){
+  lines(unlist(phi_distribution[,j]) ~ phi_distribution$phi_sequence,
+       lwd = 2,
+       col = gray(seq(0.2,0.8,l=ncol(phi_distribution))[j]))
+}
+
 P_phi = "power"
-v_sequence = seq(0.25,5,by = 0.25)
-Z_approximation = list(df = 10 + 1,
-                       phi_range = NULL)
+prior_phi = list(d = function(x) dgamma(x,shape = 2,rate = 1),
+                 q = function(p) qgamma(p,shape = 2,rate = 1),
+                 r = function(n = 1) rgamma(n,shape = 2,rate = 1))
+phi_sequence = 10
+v_sequence = c(5,10,20,40)
 verbose = TRUE
 min_ESS = 1/2 * nrow(draws0)
 n_u_values = 100
@@ -106,21 +147,17 @@ SUBSET_IS_gibbs = function(draws0,
                            pi0_samples,
                            P_phi = c("power","geometric")[1],
                            prior_phi,
-                           initial_phi_to_get_u,
+                           phi_sequence = 10, #either seq or integer for length of seq
                            v_sequence = seq(0.25,5,by = 0.25),
-                           Z_approximation = list(df = 10 + 1,
-                                                  phi_range = NULL),
                            verbose = TRUE,
                            min_ESS = 1/2 * nrow(draws0),
                            n_u_values = 100,
-                           n_draws,
+                           n_draws = nrow(draws0),
                            cl){
-  if(missing(n_draws)) n_draws = nrow(draws0)
+  
   p = ncol(pi0_samples)
   v_len = length(v_sequence)
   acc_rate = numeric(v_len)
-  prior_phi = list(d = function(x) dgamma(x,shape = 2,rate = 1),
-                   r = function(n = 1) rgamma(n,shape = 2,rate = 1))
   
   # Check
   if(missing(prior_phi) & (class(P_phi) == "function")) stop("Must provide prior for custom projection function")
@@ -130,27 +167,40 @@ SUBSET_IS_gibbs = function(draws0,
     if(P_phi == "power"){
       P = function(x) Proj(cbind(1,c(1:p)^x))
       if(missing(prior_phi)) prior_phi = list(d = function(x) dgamma(x,shape = 2,rate = 2),
+                                              q = function(p) qgamma(p,shape = 2,rate = 2),
                                               r = function(n = 1) rgamma(n,shape = 2,rate = 2))
     }
     if(P_phi == "geometric"){
       P = function(x) Proj(cbind(1,x^(-c(1:p))))
-      if(missing(prior_phi)) prior_phi = function(x) list(d = function(x) dbeta(x,2,2), #Keeping the d in case I later allow a different proposal than the prior
+      if(missing(prior_phi)) prior_phi = function(x) list(d = function(x) dbeta(x,2,2),
+                                                          q = function(p) qgamma(p,shape = 2,rate = 2),
                                                           r = function(n = 1) rbeta(n,2,2))
     }
   }else{
     P = P_phi
   }
   
-  if(missing(initial_phi_to_get_u)) initial_phi_to_get_u = mean(prior_phi$r(1e3))
+  # Get pmf for phi_sequence
+  if(length(phi_sequence) == 1){
+    phi_sequence = 
+      prior_phi$q(seq(0,1,l=phi_sequence + 2)[-c(1,phi_sequence+2)])
+  }
+  phi_pmf = prior_phi$d(phi_sequence)
+  phi_pmf = phi_pmf / sum(phi_pmf)
   
-  cat("\nGetting u for IS proposal distributions\n")
-  fixed = 
-    SUBSET_IS_fixed(draws0,P(initial_phi_to_get_u),
-                    verbose = FALSE)
-  u_values = 
-    fixed$summary$u[which( (fixed$summary$v > 0) &
-                             (fixed$summary$variable == fixed$summary$variable[1]) )]
   
+  cat("\nGetting weights for IS proposal distributions\n")
+  fixed = list()
+  for(i in 1:length(phi_sequence)){
+    fixed[[i]] = 
+      SUBSET_IS_fixed(draws0,
+                      P(phi_sequence[i]),
+                      v_sequence = v_sequence,
+                      min_ESS = min_ESS,
+                      n_u_values = n_u_values,
+                      verbose = FALSE)
+  }
+  names(fixed) = as.character(phi_sequence)
   
   # Create array to store samples
   if(is.null(colnames(draws0))){
@@ -168,10 +218,9 @@ SUBSET_IS_gibbs = function(draws0,
                             c(colnames(draws0),"phi"),
                             v_sequence))
   }
-  samples[1,,1] = c(colMeans(draws0),initial_phi_to_get_u)
   
   
-  # Get exact (actually, this is MC) method for computing Z_{\nu,\phi}
+  # Get exact (actually, this is MC) values of Z_{\nu,\phi}
   if(missing(cl)){
     Z_exact = function(I_m_P,V){
       mean(
@@ -183,7 +232,7 @@ SUBSET_IS_gibbs = function(draws0,
     }
     
   }else{
-    clusterExport(cl,c("pi0_samples","v_sequence","draws0","u_values","p"),envir = environment())
+    clusterExport(cl,c("pi0_samples"),envir = environment())
     Z_exact = function(I_m_P,V){
       clusterExport(cl,c("I_m_P","V"),envir = environment())
       
@@ -196,17 +245,15 @@ SUBSET_IS_gibbs = function(draws0,
       )
     }
   }
-  
-  if(class(Z_approximation) == "list"){
-    if(is.null(Z_approximation$phi_range)){
-      phi_prior_draws = prior_phi$r(1e4)
-      Z_approximation$phi_range = range(phi_prior_draws)
+  cat("\nGetting normalizing constances for each phi and each v\n")
+  Z_phi = matrix(0.0,length(phi_sequence),length(v_sequence),
+                 dimnames = list(as.character(phi_sequence),
+                                 as.character(v_sequence)))
+  for(x in 1:nrow(Z_phi)){
+    for(y in 1:ncol(Z_phi)){
+      Z_phi[x,y] = 
+        Z_exact(diag(p) - P(phi_sequence[x]),v_sequence[y])
     }
-    phi_seq = seq(Z_approximation$phi_range[1],
-                  Z_approximation$phi_range[2],
-                  l = ifelse(is.null(Z_approximation$seq_length),
-                             2*Z_approximation$df,
-                             Z_approximation$seq_length))
   }
   
   
@@ -222,57 +269,28 @@ SUBSET_IS_gibbs = function(draws0,
       cat("\n")
     }
     
-    if(class(Z_approximation) == "list"){
-      library(splines)
-      if(!missing(cl))clusterEvalQ(cl,{library(splines);library(SUBSET)})
-      cat("\nFitting spline interpolation for Z(phi)\n")
-      # Fit Z to a sequence of values of phi
-      Z_vals = 
-        sapply(phi_seq,function(phi){
-          Z_exact(diag(p) - P(phi),v_sequence[v])
-        })
-      ns_fit = 
-        lm(Z ~ ns(phi,df = Z_approximation$df),
-           data = data.frame(Z = Z_vals,
-                             phi = phi_seq))
-      if(verbose){
-        par(mar = c(5,5,3,0.5))
-        plot(fitted(ns_fit) ~ phi_seq, 
-             type = 'l', 
-             bty = 'l',
-             lwd = 2,
-             xlab = expression(phi),
-             ylab = expression(Z[phi]),
-             main = paste0("Spline interpolation of Z for v = ",v_sequence[v]),
-             cex.axis = 1.5,
-             cex.lab = 1.5,
-             cex.main = 1.5)
-        points(Z_vals ~ phi_seq, col = adjustcolor("tomato",0.5))
-      }
-      
-      Z = function(x){
-        predict(ns_fit,
-                newdata = data.frame(phi = x))
-      }
-    }else{
-      Z = function(phi){
-        Z_exact(diag(p) - P(phi), v_sequence[v])
-      }
-    }
+    # Get initial draw
+    ## ...of phi
+    samples[1,p + 1,v] = sample(phi_sequence,1,prob = phi_pmf)
+    ## ...of theta
+    new_draw_index = 
+      sample(1:nrow(draws0),1,
+             prob = fixed[[as.character(samples[1,p + 1,v])]]$is_draws[[v]][,p+1])
+    samples[1,1:p,v] = 
+      fixed[[as.character(samples[1,p + 1,v])]]$is_draws[[v]][new_draw_index,1:p]
     
-    
-    if(v > 1) samples[1,,v] = samples[1,,v - 1]
+    # Set up necessary objects for gibbs sampler
     P_old = P(samples[1,p+1,v])
-    Z_old = Z(samples[1,p + 1,v])
+    Z_old = Z_phi[as.character(samples[1,p + 1,v]),v]
+    
     cat("\nPerforming Gibbs Sampling\n")
     if(verbose) pb = txtProgressBar(0,n_draws,style=3)
     for(it in 2:n_draws){
       
       # Draw phi from prior, adjust with MH
-      phi_proposal = prior_phi$r(1)
+      phi_proposal = sample(phi_sequence,1,prob = phi_pmf)
       P_new = P(phi_proposal)
-      # P_orth_new = diag(p) - P_new
-      Z_new = Z(phi_proposal)
+      Z_new = Z_phi[as.character(phi_proposal),v]
       acc_prob = 
         exp(-0.5 * v_sequence[v] * 
               drop(crossprod(samples[it - 1,1:p,v],(P_old - P_new) %*% samples[it - 1,1:p,v])) ) * 
@@ -281,34 +299,18 @@ SUBSET_IS_gibbs = function(draws0,
       if(runif(1) < acc_prob){
         samples[it,p+1,v] = phi_proposal
         P_old = P_new
-        # P_orth_old = P_orth_new
         Z_old = Z_new
-        
         acc_rate[v] = acc_rate[v] + 1 / (n_draws - 1)
       }else{
         samples[it,p+1,v] = samples[it - 1,p+1,v]
       }
       
       # Draw theta via IS
-      if(missing(cl)){
-        w = 
-          sapply(1:ndraws,
-                 function(i){
-                   exp(-0.5 * v_sequence[v] * u_values[v]^2 *
-                         tcrossprod(draws0[i,],draws0[i,] %*% (diag(p) - P_old)))
-                 })
-      }else{
-        clusterExport(cl,c("v","P_old"),envir = environment())
-        w = 
-          parSapply(cl,
-                    1:ndraws,
-                    function(i){
-                      exp(-0.5 * v_sequence[v] * u_values[v]^2 *
-                            tcrossprod(draws0[i,],draws0[i,] %*% (diag(p) - P_old)))
-                      })
-      }
+      new_draw_index = 
+        sample(1:nrow(draws0),1,
+               prob = fixed[[as.character(samples[it,p + 1,v])]]$is_draws[[v]][,p+1])
       samples[it,1:p,v] = 
-        draws0[sample(nrow(draws0),1,prob = w),]
+        fixed[[as.character(samples[it,p + 1,v])]]$is_draws[[v]][new_draw_index,1:p]
       
       
       if(verbose) setTxtProgressBar(pb,it)
@@ -319,9 +321,15 @@ SUBSET_IS_gibbs = function(draws0,
   
   
   
-  
-  
-  
+  ret = list(samples = samples,
+             acc_rate = acc_rate,
+             draws0 = draws0,
+             pi0_samples = pi0_samples,
+             P_phi = P,
+             phi_pmf = cbind(phi_sequence,phi_pmf),
+             v_sequence = v_sequence)
+  class(ret) = "subset_is_gibbs"
+  return(ret)
 }
 
 
