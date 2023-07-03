@@ -65,6 +65,7 @@ SUBSET_IS_fixed = function(draws0,
                            min_ESS = 1/2 * nrow(draws0),
                            n_u_values = 100,
                            verbose = TRUE){
+  ndraws = nrow(draws0)
   CI_level = 1 - CI_level
   p = ncol(draws0)
   v_len = length(v_sequence)
