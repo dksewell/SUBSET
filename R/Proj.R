@@ -10,6 +10,15 @@
 #' Proj(rep(1,3))
 #' Proj(cbind(1,1:3))
 #' Proj(list(diag(2),cbind(1,1:3),rep(1,4)))
+#' @export
+#' @import graphics
+#' @import stats
+#' @importFrom grDevices adjustcolor
+#' @import Matrix
+#' @import parallel
+#' @import mvtnorm
+#' @import utils
+#' @import splines
 
 
 Proj = function(x){

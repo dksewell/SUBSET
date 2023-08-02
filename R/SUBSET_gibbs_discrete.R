@@ -48,7 +48,21 @@
 #' @param v_sequence vector of positive values. See details.
 #' @param verbose logical. Should any output be provided?
 #' 
-#' @return 
+#' @return Object of class "subset_gibbs", "subset_asymp_gibbs", 
+#' with the following structure:
+#' \itemize{
+#'    \item samples - 3-dim array.  First index is the samples, 
+#' second index is the variable, and third index is the
+#' value of v (the exponential tilting parameter)
+#'    \item acc_rate: numeric giving the acceptance rate for phi
+#'    \item Mean0
+#'    \item Sigma0
+#'    \item pi0_samples
+#'    \item P_phi
+#'    \item prior_phi
+#'    \item v_sequence
+#' }
+#' @export
 
 
 SUBSET_gibbs_discrete = function(Mean0,
@@ -82,8 +96,8 @@ SUBSET_gibbs_discrete = function(Mean0,
     }
     if(P_phi == "geometric"){
       P = function(x) Proj(cbind(1,x^(-c(1:p))))
-      if(missing(prior_phi)) prior_phi = function(x) list(d = function(x) dbeta(x,2,2), #Keeping the d in case I later allow a different proposal than the prior
-                                                          r = function(n = 1) rbeta(n,2,2))
+      if(missing(prior_phi)) prior_phi = list(d = function(x) dbeta(x,2,2), 
+                                              r = function(n = 1) rbeta(n,2,2))
     }
   }else{
     P = P_phi
@@ -212,6 +226,6 @@ SUBSET_gibbs_discrete = function(Mean0,
              P_phi = P,
              prior_phi = prior_phi,
              v_sequence = v_sequence)
-  class(ret) = "subset_gibbs"
+  class(ret) = c("subset_gibbs", "subset_asymp_gibbs")
   return(ret)
 }

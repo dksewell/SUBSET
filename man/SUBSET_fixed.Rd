@@ -34,6 +34,18 @@ posterior credible interval.}
 \item{verbose}{logical. Should any output be provided?  Note that
 this is typically very fast, so usually not needed.}
 }
+\value{
+Object of class "subset_fixed", "subset_asymp_fixed", "data.frame" with the
+following structure:
+\itemize{
+\item variable - Variable names extracted from colnames(Sigma0)
+\item mean - Posterior mean
+\item sd - Posterior sd
+\item \link{(1-CI_level)/2}$\% - lower CI bound
+\item \link{1 - (1-CI_level)/2}$\% - upper CI bound
+\item v - SUBSET hyperparameter (shrinkage strength)
+}
+}
 \description{
 SUBSET_fixed() will compute the asymptotic normal
 approximation to the posterior using an exponential

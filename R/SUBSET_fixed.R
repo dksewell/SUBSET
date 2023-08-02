@@ -35,12 +35,24 @@
 #' @param verbose logical. Should any output be provided?  Note that
 #' this is typically very fast, so usually not needed.
 #' 
+#' @return Object of class "subset_fixed", "subset_asymp_fixed", "data.frame" with the 
+#' following structure:
+#' \itemize{
+#'    \item variable - Variable names extracted from colnames(Sigma0)
+#'    \item mean - Posterior mean
+#'    \item sd - Posterior sd
+#'    \item [(1-CI_level)/2]$% - lower CI bound
+#'    \item [1 - (1-CI_level)/2]$% - upper CI bound
+#'    \item v - SUBSET hyperparameter (shrinkage strength)
+#' }
+#' 
 #' @examples 
 #' post_mean_from_pi0 = c(1,1.5)
 #' post_cov_from_pi0 = diag(c(1,3))
 #' P = Proj(rep(1,2))
 #' SUBSET_fixed(Mean0 = post_mean_from_pi0, Sigma = post_cov_from_pi0, Proj_mat = P, v_sequence = c(0.5,100))
 #' 
+#' @export
 
 
 SUBSET_fixed = function(Mean0,
@@ -121,7 +133,7 @@ SUBSET_fixed = function(Mean0,
   colnames(results)[4:5] = 
     c(paste0(CI_level/2 * 100,"%"),
       paste0((1-CI_level/2) * 100,"%"))
-  class(results) = c("subset_fixed","data.frame")
+  class(results) = c("subset_fixed","subset_asymp_fixed","data.frame")
   rownames(results) = NULL
   return(results)
 }

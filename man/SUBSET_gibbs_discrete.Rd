@@ -48,6 +48,22 @@ should provide n random draws from the prior on phi.}
 
 \item{verbose}{logical. Should any output be provided?}
 }
+\value{
+Object of class "subset_gibbs", "subset_asymp_gibbs",
+with the following structure:
+\itemize{
+\item samples - 3-dim array.  First index is the samples,
+second index is the variable, and third index is the
+value of v (the exponential tilting parameter)
+\item acc_rate: numeric giving the acceptance rate for phi
+\item Mean0
+\item Sigma0
+\item pi0_samples
+\item P_phi
+\item prior_phi
+\item v_sequence
+}
+}
 \description{
 SUBSET_gibbs_discrete() is a more computationally efficient
 implementation of SUBSET_gibbs() when the values of phi are

@@ -19,129 +19,41 @@
 #' @param draws0 matrix. The posterior draws  
 #' corresponding to the base prior.
 #' @param pi0_samples Samples of the model parameters 
-#' from the * base prior* (not including phi)
+#' from the *base prior* (not including phi)
 #' @param P_phi Either (1) a function taking in a scalar and returning 
 #' a projection matrix for the model parameters; or (2) "power" 
 #' in which case the projection matrix will correspond to 
 #' span((1,1,...)',(1^x,2^x,...)'); or (3) "geometric" in 
 #' which case the projection matrix will correspond to 
 #' span((1,1,...)',(x^1,x^2,...)').
-#' @param prior_phi list with named argument "r".  prior_phi$r(n) 
-#' should provide n random draws from the prior on phi.
-#' @param initial_phi_to_get_u best guess for phi to get a u 
-#' (the hyperparameter that  shrinks the proposal distribution 
-#' towards the linear subspace) with which to use during the 
-#' importance sampling step of the 2-block Gibbs sampler
-#' @param v_sequence vector of positive values. See details.
-#' @param Z_approximation If set to be NULL, Z will be 
-#' evaluated "exactly" using the pi0_samples.  Otherwise a list 
-#' must be provided in order to approximate Z(phi) via 
-#' natural cubic splines.  If the latter, the list must 
-#' have named arguments df, the degrees of freedom (see 
-#' ns()), and phi_range, a vector of length 2 giving the 
-#' lower and upper bound of \eqn{\phi}.  phi_range is 
-#' optional, and if left missing will be obtained from 
-#' the range of prior_phi(1000).
-#' @param verbose logical. Should any output be provided? 
+#' @param prior_phi list with named arguments "q" and "d".  prior_phi$q() 
+#' should provide the quantile function, and prior_phi$d() should provide 
+#' the density function.
+#' @param v_sequence vector of non-negative values for exponential shrinkage.  Higher 
+#' implies more shrinkage.
 #' @param min_ESS integer.  Minimum number of effective sample size to get 
-#' u value (based on initial_phi_to_get_u). WARNING:
+#' u value. WARNING:
 #' Don't make this too high, or you risk not representing the full parameter space well.
-#' @param n_u_values Number of values to try for u, the hyperparameter that 
-#' shrinks the proposal distribution towards the linear subspace (based on 
-#' initial_phi_to_get_u).
+#' @param n_u_values Number of values to try for u, the hyperparameter of the  
+#' proposal distribution that shrinks towards the linear subspace
+#' @param verbose logical. Should any output be provided? 
+#' @param cl parallel socket cluster (see parallel::makeCluster()).
 #' 
-#' @examples 
-
-if(FALSE){
-  library(SUBSET)
-  source("~/SUBSET/R/SUBSET_IS_fixed.R")
-# Toy example, with response rate as an increasing function of dose
-
-set.seed(2023)
-
-## Set true response rates
-true_response_rates = 
-  c(0.05,0.1,0.15,0.2,0.3,0.4,0.55,0.7)
-
-## Simulate data
-N = 50
-y = rbinom(length(true_response_rates),N,true_response_rates)
-
-## Draws from the base prior
-## (Using Jeffrey's prior on p_1, p_2, and p_3)
-ndraws = 1e4
-
-pi0_samples = 
-  matrix(rbeta(ndraws*length(true_response_rates),1/2,1/2),
-         ndraws,
-         length(true_response_rates))
-
-## Get posterior draws corresponding to the base prior
-draws0 = NULL
-for(j in 1:length(true_response_rates)){
-  draws0 = 
-    cbind(draws0,
-          rbeta(ndraws,1/2 + y[j], 1/2 + N - y[j])
-    )
-}
-colnames(draws0) = paste("p",1:length(true_response_rates),sep="")
-
-## Get posterior draws corresponding to the tilted prior
-library(parallel)
-cl = makeCluster(10)
-draws_tilted = 
-  SUBSET_IS_gibbs(draws0,
-                  pi0_samples,
-                  P_phi = "power",
-                  prior_phi = list(d = function(x) dgamma(x,shape = 2,rate = 1),
-                                   q = function(p) qgamma(p,shape = 2,rate = 1),
-                                   r = function(n = 1) rgamma(n,shape = 2,rate = 1)),
-                  phi_sequence = 10,
-                  v_sequence = c(5,10,20,40),
-                  cl = cl)
-stopCluster(cl)
-
-library(tidyverse);library(magrittr)
-phi_distribution = 
-  draws_tilted$phi_pmf %>% 
-  as_tibble() %>% 
-  mutate(phi_sequence = round(phi_sequence,3))
-for(v in 1:length(draws_tilted$v_sequence)){
-  temp = 
-    prop.table(table(draws_tilted$samples[,length(true_response_rates) + 1,v]))
-  temp = 
-    tibble(phi_sequence = as.numeric(names(temp)),
-           v1 = as.numeric(temp)) %>% 
-    mutate(phi_sequence = round(phi_sequence,3))
-  phi_distribution = 
-    left_join(phi_distribution,
-              temp,
-              by = "phi_sequence")
-}
-names(phi_distribution) = 
-  c("phi_sequence","prior",paste("v",as.character(draws_tilted$v_sequence),sep=""))
-plot(v40 ~ phi_sequence,
-     data = phi_distribution,
-     type = 'l',
-     lwd = 2,
-     col = gray(seq(0.2,0.8,l=ncol(phi_distribution))[ncol(phi_distribution)]))
-for(j in 1:(ncol(phi_distribution)-1)){
-  lines(unlist(phi_distribution[,j]) ~ phi_distribution$phi_sequence,
-       lwd = 2,
-       col = gray(seq(0.2,0.8,l=ncol(phi_distribution))[j]))
-}
-
-P_phi = "power"
-prior_phi = list(d = function(x) dgamma(x,shape = 2,rate = 1),
-                 q = function(p) qgamma(p,shape = 2,rate = 1),
-                 r = function(n = 1) rgamma(n,shape = 2,rate = 1))
-phi_sequence = 10
-v_sequence = c(5,10,20,40)
-verbose = TRUE
-min_ESS = 1/2 * nrow(draws0)
-n_u_values = 100
-n_draws = nrow(draws0)
-}
+#' @return Object of class "subset_gibbs", "subset_is_gibbs", with the following structure:
+#' \itemize{
+#'    \item samples - 3-dim array.  First index is the samples, 
+#' second index is the variable, and third index is the
+#' value of v (the exponential tilting parameter)
+#'    \item acc_rate: numeric giving the acceptance rate for phi
+#'    \item draws0
+#'    \item pi0_samples
+#'    \item P_phi
+#'    \item prior_phi
+#'    \item phi_pmf - probability mass function for \phi
+#'    \item v_sequence
+#' }
+#' 
+#' @export 
 
 SUBSET_IS_gibbs = function(draws0,
                            pi0_samples,
@@ -149,10 +61,10 @@ SUBSET_IS_gibbs = function(draws0,
                            prior_phi,
                            phi_sequence = 10, #either seq or integer for length of seq
                            v_sequence = seq(0.25,5,by = 0.25),
-                           verbose = TRUE,
                            min_ESS = 1/2 * nrow(draws0),
                            n_u_values = 100,
                            n_draws = nrow(draws0),
+                           verbose = TRUE,
                            cl){
   
   p = ncol(pi0_samples)
@@ -172,9 +84,9 @@ SUBSET_IS_gibbs = function(draws0,
     }
     if(P_phi == "geometric"){
       P = function(x) Proj(cbind(1,x^(-c(1:p))))
-      if(missing(prior_phi)) prior_phi = function(x) list(d = function(x) dbeta(x,2,2),
-                                                          q = function(p) qgamma(p,shape = 2,rate = 2),
-                                                          r = function(n = 1) rbeta(n,2,2))
+      if(missing(prior_phi)) prior_phi = list(d = function(x) dbeta(x,2,2),
+                                              q = function(p) qbeta(p,2,2),
+                                              r = function(n = 1) rbeta(n,2,2))
     }
   }else{
     P = P_phi
@@ -245,7 +157,7 @@ SUBSET_IS_gibbs = function(draws0,
       )
     }
   }
-  cat("\nGetting normalizing constances for each phi and each v\n")
+  cat("\nGetting normalizing constants for each phi and each v\n")
   Z_phi = matrix(0.0,length(phi_sequence),length(v_sequence),
                  dimnames = list(as.character(phi_sequence),
                                  as.character(v_sequence)))
@@ -326,9 +238,10 @@ SUBSET_IS_gibbs = function(draws0,
              draws0 = draws0,
              pi0_samples = pi0_samples,
              P_phi = P,
+             prior_phi = prior_phi,
              phi_pmf = cbind(phi_sequence,phi_pmf),
              v_sequence = v_sequence)
-  class(ret) = "subset_is_gibbs"
+  class(ret) = c("subset_gibbs","subset_is_gibbs")
   return(ret)
 }
 

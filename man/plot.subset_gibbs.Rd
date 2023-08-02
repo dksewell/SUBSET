@@ -8,7 +8,7 @@ projection matrix}
 \method{plot}{subset_gibbs}(
   x,
   type = c("trace", "cummean", "theta", "phi", "transition")[1],
-  v_index,
+  v,
   include_prior = TRUE,
   ...
 )
@@ -23,9 +23,7 @@ of the model parameters ("theta"), or a histogram
 of the projection matrix parameter ("phi"), or
 transition plot of the theta values over v ("transition").}
 
-\item{v_index}{Integer giving the "slice" index of
-the posterior samples corresponding to the desired
-value of v, i.e., the exponential tilting parameter.
+\item{v}{The desired value of v, i.e., the exponential tilting parameter.
 Only used for type = "theta" or "phi".}
 
 \item{include_prior}{Superimpose the marginal prior
@@ -35,8 +33,8 @@ densities on the histograms if type = "theta" or "phi".}
 }
 \description{
 plot.subset_gibbs will provide several plotting functions
-for an object returned by SUBSET_gibbs().  Obtain
-traceplots, cumulative mean plots, histograms of
+for an object returned by SUBSET_gibbs() or SUBSET_IS_gibbs().
+Obtain traceplots, cumulative mean plots, histograms of
 the model parameters, and histogram of the
 projection matrix parameter.
 }

@@ -31,13 +31,13 @@ colnames(Sigma0) = ...}
 samples are desired.}
 
 \item{pi0_samples}{Samples of the model parameters
-from the \emph{prior} (not including phi)}
+from the * base prior* (not including phi)}
 
 \item{P_phi}{Either (1) a function taking in a scalar and returning
 a projection matrix for the model parameters; or (2) "power"
 in which case the projection matrix will correspond to
 span((1,1,...)',(1^x,2^x,...)'); or (3) "geometric" in
-which case the projection matrix will corrspond to
+which case the projection matrix will correspond to
 span((1,1,...)',(x^1,x^2,...)').}
 
 \item{prior_phi}{list with named argument "r".  prior_phi$r(n)
@@ -60,20 +60,19 @@ the range of prior_phi(1000).}
 \item{cl}{(optional) cluster from the parallel package.}
 }
 \value{
-Object of class "subset_gibbs".
+Object of class "subset_gibbs", "subset_asymp_gibbs",
+with the following structure:
 \itemize{
-\item samples: 3-dim array.  First index is the samples,
+\item samples - 3-dim array.  First index is the samples,
 second index is the variable, and third index is the
 value of v (the exponential tilting parameter)
 \item acc_rate: numeric giving the acceptance rate for phi
-\item Mean0: the posterior mean without tilting
-\item Sigma0: the posterior covariance without tilting
-\item pi0_samples: Samples of the model parameters
-from the \emph{prior} (not including phi)
-\item P_phi: a function taking in a scalar and returning
-a projection matrix for the model parameters
-\item prior_phi: list with named argument "r".
-\item v_sequence: vector of exponential tilting parameters.
+\item Mean0
+\item Sigma0
+\item pi0_samples
+\item P_phi
+\item prior_phi
+\item v_sequence
 }
 }
 \description{

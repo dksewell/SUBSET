@@ -5,16 +5,14 @@
 \title{SUBspace Shrinkage via Exponential Tilting for estimated
 projection matrix}
 \usage{
-summary.subset_gibbs(object, level = 0.95, v_index, ...)
+summary.subset_gibbs(object, level = 0.95, v, ...)
 }
 \arguments{
 \item{object}{subset_gibbs object}
 
 \item{level}{the level of credible intervals to be provided}
 
-\item{v_index}{Optional Integer giving the index of
-the posterior samples corresponding to the desired
-value of v, i.e., the exponential tilting parameter.}
+\item{v}{Optional. The desired value of v, i.e., the exponential tilting parameter.}
 }
 \description{
 SUBspace Shrinkage via Exponential Tilting for estimated

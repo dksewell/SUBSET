@@ -28,15 +28,28 @@
 #' posterior credible interval.
 #' @param min_ESS integer.  Minimum number of effective sample size. WARNING:
 #' Don't make this too high, or you risk not representing the full parameter space well.
-#' @param n_u_values Number of values to try for u, the hyperparameter that 
-#' shrinks the proposal distribution towards the linear subspace.
-#' @param verbose logical. Should any output be provided?  Note that
-#' this is typically very fast, so usually not needed.
+#' @param n_u_values Number of values to try for u, the hyperparameter of the 
+#' proposal distribution that shrinks towards the linear subspace.
+#' @param verbose logical. Should any output be provided?
+#' 
+#' @return Object of class "subset_fixed", "subset_IS_fixed", with named elements summary 
+#' having the following structure:
+#' \itemize{
+#'    \item variable - Variable names extracted from colnames(Sigma0)
+#'    \item mean - Posterior mean
+#'    \item [(1-CI_level)/2]$% - lower CI bound
+#'    \item [1 - (1-CI_level)/2]$% - upper CI bound
+#'    \item v - SUBSET hyperparameter (shrinkage strength)
+#'    \item ESS - Effective sample size for the importance sampling
+#'    \item u - the maximum u providing at ESS >= ESS_min
+#' }
+#' and is_draws, which is a list of, for each v, draws from the importance distribution 
+#' and the corresponding importance weights.
 #' 
 #' @examples 
 #' theta_true = c(1,1.5)
 #' N = 50
-#' y = rmvnorm(N,theta_true,diag(2))
+#' y = mvtnorm::rmvnorm(N,theta_true,diag(2))
 #' P = Proj(c(1,1))
 #' posterior_Sigma = function(nu){
 #'   chol2inv(chol((N+1) * diag(2) + nu * (diag(2) - P)))
@@ -46,7 +59,7 @@
 #' }
 #' ndraws = 1e4
 #' draws0 = 
-#'   rmvnorm(ndraws,posterior_mu(0),posterior_Sigma(0))
+#'   mvtnorm::rmvnorm(ndraws,posterior_mu(0),posterior_Sigma(0))
 #' tilted_post = 
 #'   SUBSET_IS_fixed(draws0,
 #'                   Proj_mat = P,
@@ -55,7 +68,8 @@
 #'                   min_ESS = 1/2 * nrow(draws0),
 #'                   n_u_values = 100,
 #'                   verbose = TRUE)
-#' 
+#' tilted_post$summary
+#' @export
 
 
 SUBSET_IS_fixed = function(draws0,
@@ -195,7 +209,7 @@ SUBSET_IS_fixed = function(draws0,
       paste0((1-CI_level/2) * 100,"%"))
   results = list(summary = results,
                  is_draws = draws_u)
-  class(results) = c("subset_SI_fixed")
+  class(results) = c("subset_fixed","subset_IS_fixed")
   rownames(results$summary) = NULL
   return(results)
 }
