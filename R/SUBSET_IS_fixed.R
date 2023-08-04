@@ -130,7 +130,7 @@ SUBSET_IS_fixed = function(draws0,
     Tnu = TT(v_sequence[v])
     
     u_seq = 
-      seq(1,0,l = n_u_values+1)[-1]
+      seq(1,0,l = n_u_values+1)[-(n_u_values+1)]
     for(uu in u_seq){
       ESS_value = 
         ESS(uu,Tnu)
