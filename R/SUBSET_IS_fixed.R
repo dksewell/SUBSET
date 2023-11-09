@@ -24,97 +24,116 @@
 #' all of which should correspond to the base prior.
 #' @param Proj_mat matrix.  Projection matrix for the 
 #' desired linear subspace you wish to shrink towards.
-#' @param CI_level numeric between (0,1). Level of the 
+#' @param CI_level numeric in (0,1). Level of the 
 #' posterior credible interval.
-#' @param min_ESS integer.  Minimum number of effective sample size. 
+#' @param nu shrinkage parameter.  If missing, the optimal nu via Bayes factors will be used
+#' @param nu_max maximum value of nu to be considered.
+#' @param min_ESS integer.  Minimum number of effective sample size in considering values of nu. 
 #' @param verbose logical. Should any output be provided?
+#' @param cl optional object of class c("SOCKcluster", "cluster") generated from parallel::makeCluster.
 #' 
-#' @return Object of class "subset_fixed", "subset_IS_fixed", with named elements summary 
-#' having the following structure:
+#' @return Object of class "subset_fixed", "subset_IS_fixed", with the following named elements:
 #' \itemize{
-#'    \item variable - Variable names extracted from colnames(Sigma0)
-#'    \item mean - Posterior mean
-#'    \item [(1-CI_level)/2]$% - lower CI bound
-#'    \item [1 - (1-CI_level)/2]$% - upper CI bound
-#'    \item v - SUBSET hyperparameter (shrinkage strength)
-#'    \item ESS - Effective sample size for the importance sampling
-#'    \item u - the maximum u providing at ESS >= ESS_min
+#' \item summary, a data frame with the following structure:
+#'    \itemize{
+#'      \item variable - Variable names extracted from colnames(Sigma0)
+#'      \item mean - Posterior mean
+#'      \item [(1-CI_level)/2]$% - lower CI bound
+#'      \item [1 - (1-CI_level)/2]$% - upper CI bound
+#'    }
+#' \item nu the SUBSET shrinkage parameter either fixed by the user or selected by Bayes factor
+#' \item ESS the effective sample size
+#' \item BF_favoring_nu The Bayes factor in favor of shrinkage vs. no shrinkage
+#' \item proposal_draws Draws input by user (posterior draws under the base prior).
+#' \item is_weights Importance sampling weights corresponding to the proposal draws under the 
+#' SUBSET prior
+#' \item base_prior_draws Draws input by the user (prior draws under the base prior).
 #' }
-#' and is_draws, which is a list of, for each v, draws from the importance distribution 
-#' and the corresponding importance weights.
 #' 
 #' @examples 
+#' # Simulate where truth lies far from subspace
+#' set.seed(2023)
 #' theta_true = c(1,1.5)
-#' N = 50
+#' N = 100
+#' ndraws = 1e5
+#' draws0 = list()
+#' # y ~ N(mu, I_2)
 #' y = mvtnorm::rmvnorm(N,theta_true,diag(2))
-#' P = Proj(c(1,1))
-#' posterior_Sigma = function(nu){
-#'   chol2inv(chol((N+1) * diag(2) + nu * (diag(2) - P)))
-#' }
-#' posterior_mu = function(nu){
-#'   N * posterior_Sigma(nu) %*% colMeans(y)
-#' }
-#' ndraws = 1e4
-#' draws0 = 
-#'   mvtnorm::rmvnorm(ndraws,posterior_mu(0),posterior_Sigma(0))
-#' tilted_post = 
-#'   SUBSET_IS_fixed(draws0,
-#'                   Proj_mat = P,
-#'                   v_sequence = seq(5,50,by = 5),
-#'                   CI_level = 0.95,
-#'                   min_ESS = 1/2 * nrow(draws0),
-#'                   n_u_values = 100,
-#'                   verbose = TRUE)
-#' tilted_post$summary
+#' # mu ~ N(0,2.5^2 * I_2)
+#' prior_cov = 2.5^2 * diag(2)
+#' # Draw from base prior
+#' draws0$prior = 
+#'   mvtnorm::rmvnorm(ndraws, numeric(2), 2.5^2 * diag(2))
+#' # Draw from posterior (under base prior)
+#' post_cov = 
+#'   chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+#' post_mean = 
+#'   post_cov %*% diag(2) %*% (N * colMeans(y))
+#' draws0$posterior = 
+#'   mvtnorm::rmvnorm(ndraws, post_mean, post_cov)
+#' 
+#' tilted_post_off_subspace = 
+#'   SUBSET_IS_fixed(draws0, 
+#'                   Proj_mat = Proj(c(1,1)))
+#' tilted_post_off_subspace$nu # The shrinkage parameter selected by Bayes factor
+#' tilted_post_off_subspace$BF_favoring_nu # The Bayes factor favoring nu = tilted_post$nu vs. nu = 0
+#' tilted_post_off_subspace$ESS # Effective sample size
+#' tilted_post_off_subspace$summary
+#' sum((colMeans(draws0$posterior) - theta_true)^2) # MSE for posterior mean under base prior
+#' sum((tilted_post_off_subspace$summary$posterior_mean - theta_true)^2) # MSE for posterior mean under subset prior
+#' 
+#' # Now the truth lies near on the subspace
+#' set.seed(2023)
+#' theta_true = c(1.2,1.25)
+#' N = 100
+#' ndraws = 1e5
+#' draws0 = list()
+#' # y ~ N(mu, I_2)
+#' y = mvtnorm::rmvnorm(N,theta_true,diag(2))
+#' # mu ~ N(0,2.5^2 * I_2)
+#' prior_cov = 2.5^2 * diag(2)
+#' # Draw from base prior
+#' draws0$prior = 
+#'   mvtnorm::rmvnorm(ndraws, numeric(2), 2.5^2 * diag(2))
+#' # Draw from posterior (under base prior)
+#' post_cov = 
+#'   chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+#' post_mean = 
+#'   post_cov %*% diag(2) %*% (N * colMeans(y))
+#' draws0$posterior = 
+#'   mvtnorm::rmvnorm(ndraws, post_mean, post_cov)
+#' 
+#' tilted_post_near_subspace = 
+#'   SUBSET_IS_fixed(draws0, 
+#'                   Proj_mat = Proj(c(1,1)))
+#' tilted_post_near_subspace$nu # The shrinkage parameter selected by Bayes factor
+#' tilted_post_near_subspace$BF_favoring_nu # The Bayes factor favoring nu = tilted_post$nu vs. nu = 0
+#' tilted_post_near_subspace$ESS # Effective sample size
+#' tilted_post_near_subspace$summary
+#' sum((colMeans(draws0$posterior) - theta_true)^2) # MSE for posterior mean under base prior
+#' sum((tilted_post_near_subspace$summary$posterior_mean - theta_true)^2) # MSE for posterior mean under subset prior
+#' 
+#' @import parallel
+#' @import Matrix
+#' @import graphics
+#' @import mvtnorm
+#' @import splines
+#' @import stats
+#' @import utils
+#' @importFrom grDevices adjustcolor
 #' @export
+#' @exportClass subset_fixed
+#' @exportClass subset_IS_fixed
 
 
-if(TRUE){
-  library(SUBSET)
-  library(Matrix)
-  library(dplyr)
-  library(mvtnorm)
-  library(parallel)
-  library(splines)
-  
-  set.seed(2023)
-  theta_true = c(1,1.5)
-  N = 50
-  ndraws = 1e4
-  # y ~ N(mu, I_2)
-  y = mvtnorm::rmvnorm(N,theta_true,diag(2))
-  # mu ~ N(0,2.5^2 * I_2)
-  prior_cov = 2.5^2 * diag(2)
-  # Draw from base prior
-  prior_draws = 
-    mvtnorm::rmvnorm(ndraws, numeric(2), 2.5^2 * diag(2))
-  # Draw from posterior (under base prior)
-  post_cov = 
-    chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
-  post_mean = 
-    post_cov %*% diag(2) %*% (N * colMeans(y))
-  posterior_draws = 
-    mvtnorm::rmvnorm(ndraws, post_mean, post_cov)
-  
-  draws0 = 
-    list(prior = prior_draws,
-         posterior = posterior_draws)
-  
-  Proj_mat = Proj(c(1,1))
-  CI_level = 0.95
-  min_ESS = 1/10 * nrow(draws0$posterior)
-  verbose = TRUE
-  
-  cl = makeCluster(10)
-  
-}
 
 SUBSET_IS_fixed = function(draws0,
                            Proj_mat = Proj(matrix(1,ncol(draws0),1)),
                            CI_level = 0.95,
-                           min_ESS = 1/10 * nrow(draws0),
-                           verbose = TRUE,
                            nu,
+                           nu_max,
+                           min_ESS = 1/10 * nrow(draws0$posterior),
+                           verbose = TRUE,
                            cl){
   ndraws = sapply(draws0,nrow)
   CI_level = 1 - CI_level
@@ -141,15 +160,17 @@ SUBSET_IS_fixed = function(draws0,
   }else{
     clusterExport(cl,c("draws0","I_m_P"),envir = environment())
     w_1 = 
-      sapply(1:ndraws,
-             function(i){
-               exp(-0.5 * tcrossprod(draws0$posterior[i,],draws0$posterior[i,] %*% I_m_P))
-             })
+      parSapply(cl,
+                1:ndraws,
+                function(i){
+                  exp(-0.5 * tcrossprod(draws0$posterior[i,],draws0$posterior[i,] %*% I_m_P))
+                })
     wtilde_1 = 
-      sapply(1:ndraws,
-             function(i){
-               exp(-0.5 * tcrossprod(draws0$prior[i,],draws0$prior[i,] %*% I_m_P))
-             })
+      parSapply(cl,
+                1:ndraws,
+                function(i){
+                  exp(-0.5 * tcrossprod(draws0$prior[i,],draws0$prior[i,] %*% I_m_P))
+                })
   }
   
   ## Create function that creates w_k(\nu)
@@ -172,25 +193,27 @@ SUBSET_IS_fixed = function(draws0,
   
   if(missing(nu)){
     ## Find maximum \nu allowed by ESS
-    find_max_nu = function(nu){
-      w_k = get_w_k(nu)
-      w_k = w_k / sum(w_k)
+    find_max_nu = function(x){
+      w_k = get_w_k(x)
+      w_k_sum = sum(w_k)
+      w_k = w_k / ifelse(w_k_sum == 0,1,w_k_sum)
       
       ESS = 1 / sum(w_k^2)
       
       (ESS - min_ESS)^2
     }
-    nu_max = nu_upper_bound = 1e3
-    safety = 0
-    if(verbose) cat("\n---Finding maximum nu to satisfy ESS constraints\n")
-    while( ( abs(nu_max - nu_upper_bound) / nu_upper_bound < 1e-3) & safety < 100){
-      nu_upper_bound = 2 * nu_upper_bound
-      nu_max = 
-        optimize(find_max_nu,
-                 interval = c(0,nu_upper_bound))$min
-      safety = safety + 1
+    if(missing(nu_max)){
+      nu_max = nu_upper_bound = 1e3
+      safety = 0
+      if(verbose) cat("\n---Finding maximum nu to satisfy ESS constraints\n")
+      while( ( abs(nu_max - nu_upper_bound) / nu_upper_bound < 1e-3) & safety < 100){
+        nu_upper_bound = 2 * nu_upper_bound
+        nu_max = 
+          optimize(find_max_nu,
+                   interval = c(0,nu_upper_bound))$min
+        safety = safety + 1
+      }
     }
-    
     
     ## Get optimal nu according to bayes factor
     best_nu = function(nu){

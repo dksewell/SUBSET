@@ -70,8 +70,18 @@
 #'    \item v_sequence
 #' }
 #' 
-#' @export
+#' 
+#' @import parallel
+#' @import Matrix
+#' @import graphics
+#' @import mvtnorm
 #' @import splines
+#' @import stats
+#' @import utils
+#' @importFrom grDevices adjustcolor
+#' @export
+#' @exportClass subset_gibbs
+#' @exportClass subset_asymp_gibbs
 
 
 SUBSET_gibbs = function(Mean0,

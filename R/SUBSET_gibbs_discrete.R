@@ -62,7 +62,18 @@
 #'    \item prior_phi
 #'    \item v_sequence
 #' }
+#' 
+#' @import parallel
+#' @import Matrix
+#' @import graphics
+#' @import mvtnorm
+#' @import splines
+#' @import stats
+#' @import utils
+#' @importFrom grDevices adjustcolor
 #' @export
+#' @exportClass subset_gibbs
+#' @exportClass subset_asymp_gibbs
 
 
 SUBSET_gibbs_discrete = function(Mean0,

@@ -52,7 +52,17 @@
 #' P = Proj(rep(1,2))
 #' SUBSET_fixed(Mean0 = post_mean_from_pi0, Sigma = post_cov_from_pi0, Proj_mat = P, v_sequence = c(0.5,100))
 #' 
+#' @import parallel
+#' @import Matrix
+#' @import graphics
+#' @import mvtnorm
+#' @import splines
+#' @import stats
+#' @import utils
+#' @importFrom grDevices adjustcolor
 #' @export
+#' @exportClass subset_fixed
+#' @exportClass subset_IS_fixed
 
 
 SUBSET_fixed = function(Mean0,
