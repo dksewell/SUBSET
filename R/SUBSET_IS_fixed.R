@@ -203,14 +203,17 @@ SUBSET_IS_fixed = function(draws0,
       (ESS - min_ESS)^2
     }
     if(missing(nu_max)){
-      nu_max = nu_upper_bound = 1e3
+      nu_lower_bound = 0
+      nu_max = nu_upper_bound = 5
       safety = 0
       if(verbose) cat("\n---Finding maximum nu to satisfy ESS constraints\n")
-      while( ( abs(nu_max - nu_upper_bound) / nu_upper_bound < 1e-3) & safety < 100){
+      while( ( abs(nu_max - nu_upper_bound) / nu_upper_bound < 1e-3) & safety < 25){
         nu_upper_bound = 2 * nu_upper_bound
         nu_max = 
           optimize(find_max_nu,
-                   interval = c(0,nu_upper_bound))$min
+                   interval = c(nu_lower_bound,
+                                nu_upper_bound))$min
+        nu_lower_bound = nu_upper_bound
         safety = safety + 1
       }
     }
