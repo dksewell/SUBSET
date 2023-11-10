@@ -32,35 +32,32 @@
 #' matrix corresponding to the base prior. NOTE: The
 #' variable names are extracted from Sigma0, so use 
 #' colnames(Sigma0) = ...
+#' @param prior_draws Samples of the model parameters 
+#' from the *prior* (not including phi)
 #' @param n_draws positive integer of how many posterior 
 #' samples are desired.
-#' @param pi0_samples Samples of the model parameters 
-#' from the *prior* (not including phi)
 #' @param P_phi Either (1) a function taking in a scalar and returning 
 #' a projection matrix for the model parameters; or (2) "power" 
 #' in which case the projection matrix will correspond to 
 #' span((1,1,...)',(1^x,2^x,...)'); or (3) "geometric" in 
 #' which case the projection matrix will corrspond to 
 #' span((1,1,...)',(x^1,x^2,...)').
-#' @param prior_phi list with named argument "r".  prior_phi$r(n) 
-#' should provide n random draws from the prior on phi.
 #' @param unique_phi vector of the finite values the phi can take
-#' @param v_sequence vector of positive values. See details.
+#' @param prior_phi numeric vector of probabilities for unique_phi
+#' @param nu shrinkage parameter.  If missing, the optimal nu via Bayes factors will be used
+#' @param nu_max maximum value of nu to be considered.
 #' @param verbose logical. Should any output be provided?
 #' 
 #' @return Object of class "subset_gibbs", "subset_asymp_gibbs", 
 #' with the following structure:
 #' \itemize{
-#'    \item samples - 3-dim array.  First index is the samples, 
-#' second index is the variable, and third index is the
-#' value of v (the exponential tilting parameter)
+#'    \item samples - matrix of posterior draws from the 2-block Gibbs sampler. Each 
+#'    row is a posterior draw.  The last column corresponds to phi.
 #'    \item acc_rate: numeric giving the acceptance rate for phi
 #'    \item Mean0
 #'    \item Sigma0
-#'    \item pi0_samples
 #'    \item P_phi
 #'    \item prior_phi
-#'    \item v_sequence
 #' }
 #' 
 #' @import parallel
@@ -78,22 +75,22 @@
 
 SUBSET_gibbs_discrete = function(Mean0,
                                  Sigma0,
+                                 prior_draws,
                                  n_draws,
-                                 pi0_samples,
                                  P_phi = c("power","geometric")[1],
-                                 prior_phi,
                                  unique_phi,
-                                 v_sequence = seq(0.25,5,by = 0.25),
+                                 prior_phi,
+                                 nu,
+                                 nu_max,
                                  verbose = TRUE){
   
-  p = ncol(pi0_samples)
-  v_len = length(v_sequence)
-  acc_rate = numeric(v_len)
+  p = ncol(prior_draws)
+  acc_rate = numeric(1)
   
   Sigma0_inv = chol2inv(chol(Sigma0))
   
   
-  if(missing(n_draws)) n_draws = nrow(pi0_samples)
+  if(missing(n_draws)) n_draws = nrow(prior_draws)
   
   # Check
   if(missing(prior_phi) & (class(P_phi) == "function")) stop("Must provide prior for custom projection function")
@@ -117,126 +114,165 @@ SUBSET_gibbs_discrete = function(Mean0,
   # Create array to store samples
   if(is.null(colnames(Sigma0))){
     samples = 
-      array(0.0,
-            c(n_draws,p + 1,v_len),
-            dimnames = list(NULL,
-                            c(paste("v",1:p,sep=""),"phi"),
-                            v_sequence))
+      matrix(0.0,
+             n_draws,p + 1,
+             dimnames = list(NULL,
+                             c(paste("theta",1:p,sep=""),"phi")))
   }else{
     samples = 
-      array(0.0,
-            c(n_draws,p + 1,v_len),
-            dimnames = list(NULL,
-                            c(colnames(Sigma0),"phi"),
-                            v_sequence))
+      matrix(0.0,
+             n_draws,p + 1,
+             dimnames = list(NULL,
+                             c(colnames(Sigma0),"phi")))
   }
-  samples[1,,1] = c(Mean0,prior_phi$r())
   
-  if(missing(unique_phi)) unique_phi = unique(prior_phi$r(1e4))
+  if(missing(unique_phi)) stop("Must provide values of phi")
+  
+  phi_initial = which.max(prior_phi)
+  samples[1,] = c(Mean0,phi_initial)
+  
+  
+  
+  # Get nu
+  Sigma0_logdet = determinant(Sigma0)$modulus
+  if(missing(nu)){
+    Proj_mat = P(unique_phi[samples[1,p+1]])
+    I_m_P = diag(p) - Proj_mat
+    
+    if(missing(cl)){
+      wtilde_1 = 
+        sapply(1:nrow(prior_draws),
+               function(i){
+                 exp(-0.5 * tcrossprod(prior_draws[i,],prior_draws[i,] %*% I_m_P))
+               })
+    }else{
+      clusterExport(cl,c("prior_draws","I_m_P"),envir = environment())
+      wtilde_1 = 
+        parSapply(cl,
+                  1:ndraws,
+                  function(i){
+                    exp(-0.5 * tcrossprod(prior_draws[i,],prior_draws[i,] %*% I_m_P))
+                  })
+    }
+    non_nu_term = 
+      -0.5 * Sigma0_logdet -
+      0.5 * drop( crossprod(Mean0,Sigma0_inv %*% Mean0) )
+    
+    if(missing(cl)){
+      get_BF = function(nu){
+        Z_nu = mean(sapply(wtilde_1,function(x)x^nu))
+        
+        Sigma_inv = Sigma0_inv + nu * I_m_P
+        Sigma =  chol2inv(chol(Sigma_inv))
+        Mean = drop(Sigma %*% Sigma0_inv %*% Mean0)
+        
+        non_nu_term -
+          0.5 * determinant(Sigma_inv)$modulus +
+          0.5 * drop( crossprod(Mean,Sigma_inv %*% Mean) ) - 
+          log(Z_nu)
+      }
+    }else{
+      clusterExport(cl,
+                    c("wtilde_1","Sigma0_inv","Mean0","non_nu_term"),
+                    envir = environment())
+      get_BF = function(nu){
+        Z_nu = mean(parSapply(cl,wtilde_1,function(x)x^nu))
+        
+        Sigma_inv = Sigma0_inv + nu * I_m_P
+        Sigma =  chol2inv(chol(Sigma_inv))
+        Mean = drop(Sigma %*% Sigma0_inv %*% Mean0)
+        
+        non_nu_term -
+          0.5 * determinant(Sigma_inv)$modulus +
+          0.5 * drop( crossprod(Mean,Sigma_inv %*% Mean) ) - 
+          log(Z_nu)
+      }
+    }
+    lower_bound = 0
+    nu = upper_bound = 5
+    safety = 0
+    while( ( abs(nu - upper_bound) / upper_bound < 1e-3) & (safety < 25)){
+      upper_bound = 2 * upper_bound
+      opt = optimize(get_BF,
+                     interval = c(lower_bound,upper_bound),
+                     maximum = TRUE)
+      nu = opt$maximum
+    }
+  }
+  
+  
+  # Get components to compute Z_phi
   Z_phi_exponent = 
-    sapply(unique_phi, function(phi){
+    lapply(unique_phi, function(phi){
       I_m_P = diag(p) - P(phi)
       
-      sapply(1:nrow(pi0_samples), 
+      sapply(1:nrow(prior_draws), 
              function(i){
-               drop(crossprod(pi0_samples[i,],I_m_P %*% pi0_samples[i,]))
+               drop(crossprod(prior_draws[i,],I_m_P %*% prior_draws[i,]))
              })
     })
   
-  Z_exact = function(phi,V){
-    mean(
-      exp(-0.5 * V * Z_phi_exponent[,which(unique_phi == phi)])
-    )
-  }
-    
-    
-  
-  
-  # if(class(Z_approximation) == "list"){
-  #   if(is.null(Z_approximation$phi_range)){
-  #     phi_prior_draws = prior_phi$r(1e3)
-  #     Z_approximation$phi_range = range(phi_prior_draws)
-  #   }
-  #   phi_seq = seq(Z_approximation$phi_range[1],
-  #                 Z_approximation$phi_range[2],
-  #                 l = ifelse(is.null(Z_approximation$seq_length),
-  #                            2*Z_approximation$df,
-  #                            Z_approximation$seq_length))
-  # }
+  Z_values = 
+    sapply(1:length(unique_phi),
+           function(i){
+             mean(
+               exp(-0.5 * nu * Z_phi_exponent[[i]])
+             )
+           })
   
   
   #Perform Gibbs sampler for each v 
-  for(v in 1:v_len){
-    if(verbose){
-      cat("\n")
-      cat(paste(rep("-",4 + nchar(as.character(v_sequence[v]))),collapse=""))
-      cat("\n")
-      cat(paste0("v = ",v_sequence[v]))
-      cat("\n")
-      cat(paste(rep("-",4 + nchar(as.character(v_sequence[v]))),collapse=""))
-      cat("\n")
+  P_old = P(unique_phi[samples[1,p+1]])
+  # P_orth_old = diag(p) - P_old
+  Z_old = Z_values[samples[1,p + 1]]
+  
+  cat("\nPerforming Gibbs Sampling\n")
+  if(verbose) pb = txtProgressBar(0,n_draws,style=3)
+  for(it in 2:n_draws){
+    
+    # Draw phi from prior
+    phi_proposal = sample.int(length(unique_phi),1,prob = prior_phi)
+    P_new = P(unique_phi[phi_proposal])
+    # P_orth_new = diag(p) - P_new
+    Z_new = Z_values[phi_proposal]
+    acc_prob = 
+      exp(-0.5 * nu * 
+            drop(crossprod(samples[it - 1,1:p],(P_old - P_new) %*% samples[it - 1,1:p])) ) * 
+      Z_old / Z_new # No prior terms since this cancels in the acceptance prob., i.e., g = pi
+    
+    if(runif(1) < acc_prob){
+      samples[it,p+1] = phi_proposal
+      P_old = P_new
+      Z_old = Z_new
+      acc_rate = acc_rate + 1 / (n_draws - 1)
+    }else{
+      samples[it,p+1] = samples[it - 1,p+1]
     }
     
+    # Draw theta
+    Sigma_inv = Sigma0_inv + nu * (diag(p) - P_old)
+    Sigma =  chol2inv(chol(Sigma_inv))
+    Mean = drop(Sigma %*% Sigma0_inv %*% Mean0)
+    samples[it,1:p] = 
+      drop(
+        rmvnorm(1,
+                mean = Mean,
+                sigma = Sigma)
+      )
     
-    Z = function(phi){
-      Z_exact(phi, v_sequence[v])
-    }
-    
-    
-    if(v > 1) samples[1,,v] = samples[1,,v - 1]
-    P_old = P(samples[1,p+1,v])
-    # P_orth_old = diag(p) - P_old
-    Z_old = Z(samples[1,p + 1,v])
-    cat("\nPerforming Gibbs Sampling\n")
-    if(verbose) pb = txtProgressBar(0,n_draws,style=3)
-    for(it in 2:n_draws){
-      
-      # Draw phi from prior
-      phi_proposal = prior_phi$r()
-      P_new = P(phi_proposal)
-      # P_orth_new = diag(p) - P_new
-      Z_new = Z(phi_proposal)
-      acc_prob = 
-        exp(-0.5 * v_sequence[v] * 
-              drop(crossprod(samples[it - 1,1:p,v],(P_old - P_new) %*% samples[it - 1,1:p,v])) ) * 
-        Z_old / Z_new # No prior terms since this cancels in the acceptance prob., i.e., g = pi
-      
-      if(runif(1) < acc_prob){
-        samples[it,p+1,v] = phi_proposal
-        P_old = P_new
-        # P_orth_old = P_orth_new
-        Z_old = Z_new
-        
-        acc_rate[v] = acc_rate[v] + 1 / (n_draws - 1)
-      }else{
-        samples[it,p+1,v] = samples[it - 1,p+1,v]
-      }
-      
-      # Draw theta
-      Sigma_inv = Sigma0_inv + v * (diag(p) - P_old)
-      Sigma =  chol2inv(chol(Sigma_inv))
-      Mean = drop(Sigma %*% Sigma0_inv %*% Mean0)
-      samples[it,1:p,v] = 
-        drop(
-          rmvnorm(1,
-                  mean = Mean,
-                  sigma = Sigma)
-        )
-      
-      if(verbose) setTxtProgressBar(pb,it)
-    }
-    
-    
+    if(verbose) setTxtProgressBar(pb,it)
   }
+  
+  
+  samples[,p+1] = unique_phi[samples[,p+1]]
   
   ret = list(samples = samples,
              acc_rate = acc_rate,
              Mean0 = Mean0,
              Sigma0 = Sigma0,
-             pi0_samples = pi0_samples,
              P_phi = P,
              prior_phi = prior_phi,
-             v_sequence = v_sequence)
+             nu = nu)
   class(ret) = c("subset_gibbs", "subset_asymp_gibbs")
   return(ret)
 }

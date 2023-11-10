@@ -27,13 +27,15 @@
 #' matrix corresponding to the base prior. NOTE: The
 #' variable names are extracted from Sigma0, so use 
 #' colnames(Sigma0) = ...
+#' @param prior_draws matrix of prior draws (each row is a draw), 
+#' corresponding to the base prior.
 #' @param Proj_mat matrix.  Projection matrix for the 
 #' desired linear subspace you wish to shrink towards.
-#' @param v_sequence vector of positive values. See details.
 #' @param CI_level numeric between (0,1). Level of the 
 #' posterior credible interval.
-#' @param verbose logical. Should any output be provided?  Note that
-#' this is typically very fast, so usually not needed.
+#' @param nu shrinkage parameter.  If missing, the optimal nu via Bayes factors will be used
+#' @param nu_max maximum value of nu to be considered.
+#' @param cl optional object of class c("SOCKcluster", "cluster") generated from parallel::makeCluster.
 #' 
 #' @return Object of class "subset_fixed", "subset_asymp_fixed", "data.frame" with the 
 #' following structure:
@@ -47,10 +49,63 @@
 #' }
 #' 
 #' @examples 
-#' post_mean_from_pi0 = c(1,1.5)
-#' post_cov_from_pi0 = diag(c(1,3))
-#' P = Proj(rep(1,2))
-#' SUBSET_fixed(Mean0 = post_mean_from_pi0, Sigma = post_cov_from_pi0, Proj_mat = P, v_sequence = c(0.5,100))
+#' # Simulate where truth lies far from subspace
+#' set.seed(2023)
+#' theta_true = c(1,1.5)
+#' N = 100
+#' ndraws = 1e5
+#' # y ~ N(mu, I_2)
+#' y = mvtnorm::rmvnorm(N,theta_true,diag(2))
+#' # mu ~ N(0,2.5^2 * I_2)
+#' prior_cov = 2.5^2 * diag(2)
+#' # Draw from base prior
+#' prior_draws = 
+#'   mvtnorm::rmvnorm(ndraws, numeric(2), prior_cov)
+#' # Get posterior parameters (under base prior)
+#' Sigma0 = 
+#'   chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+#' Mean0 = 
+#'   Sigma0 %*% diag(2) %*% (N * colMeans(y))
+#' 
+#' tilted_post_off_subspace = 
+#'   SUBSET_fixed(Mean0 = Mean0,
+#'                Sigma0 = Sigma0,
+#'                prior_draws = prior_draws, 
+#'                Proj_mat = Proj(c(1,1)))
+#' tilted_post_off_subspace$nu # The shrinkage parameter selected by Bayes factor
+#' tilted_post_off_subspace$BF_favoring_nu # The Bayes factor favoring nu = tilted_post$nu vs. nu = 0
+#' tilted_post_off_subspace$summary
+#' sum((Mean0 - theta_true)^2) # MSE for posterior mean under base prior
+#' sum((tilted_post_off_subspace$summary$posterior_mean - theta_true)^2) # MSE for posterior mean under subset prior
+#' 
+#' # Now the truth lies near on the subspace
+#' set.seed(2023)
+#' theta_true = c(1.2,1.25)
+#' N = 100
+#' ndraws = 1e5
+#' # y ~ N(mu, I_2)
+#' y = mvtnorm::rmvnorm(N,theta_true,diag(2))
+#' # mu ~ N(0,2.5^2 * I_2)
+#' prior_cov = 2.5^2 * diag(2)
+#' # Draw from base prior
+#' prior_draws = 
+#'   mvtnorm::rmvnorm(ndraws, numeric(2), prior_cov)
+#' # Get posterior parameters (under base prior)
+#' Sigma0 = 
+#'   chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+#' Mean0 = 
+#'   Sigma0 %*% diag(2) %*% (N * colMeans(y))
+#' 
+#' tilted_post_near_subspace = 
+#'   SUBSET_fixed(Mean0 = Mean0,
+#'                Sigma0 = Sigma0,
+#'                prior_draws = prior_draws, 
+#'                Proj_mat = Proj(c(1,1)))
+#' tilted_post_near_subspace$nu # The shrinkage parameter selected by Bayes factor
+#' tilted_post_near_subspace$BF_favoring_nu # The Bayes factor favoring nu = tilted_post$nu vs. nu = 0
+#' tilted_post_near_subspace$summary
+#' sum((Mean0 - theta_true)^2) # MSE for posterior mean under base prior
+#' sum((tilted_post_near_subspace$summary$posterior_mean - theta_true)^2) # MSE for posterior mean under subset prior
 #' 
 #' @import parallel
 #' @import Matrix
@@ -67,84 +122,135 @@
 
 SUBSET_fixed = function(Mean0,
                         Sigma0,
+                        prior_draws,
                         Proj_mat = Proj(matrix(1,ncol(Sigma0),1)),
-                        v_sequence = seq(0.25,5,by = 0.25),
                         CI_level = 0.95,
-                        verbose = FALSE){
+                        nu,
+                        nu_max,
+                        cl){
   CI_level = 1 - CI_level
   p = ncol(Sigma0)
-  v_len = length(v_sequence)
   Mean0 = drop(Mean0)
   
   Sigma0_inv = chol2inv(chol(Sigma0))
   
-  results = list()
-  for(v in 1:v_len){
-    if(verbose){
-      cat("\n")
-      cat(paste(rep("-",4 + nchar(as.character(v_sequence[v]))),collapse=""))
-      cat("\n")
-      cat(paste0("v = ",v_sequence[v]))
-      cat("\n")
-      cat(paste(rep("-",4 + nchar(as.character(v_sequence[v]))),collapse=""))
-      cat("\n")
-    }
+  
+  if(!is.null(colnames(Sigma0))){
+    results = 
+      data.frame(variable = colnames(Sigma0),
+                 posterior_mean = numeric(p),
+                 sd = numeric(p),
+                 lower = numeric(p),
+                 upper = numeric(p),
+                 v = numeric(p))
+  }else{
+    results = 
+      data.frame(variable = paste0("theta",1:ncol(Sigma0)),
+                 posterior_mean = numeric(p),
+                 sd = numeric(p),
+                 lower = numeric(p),
+                 upper = numeric(p))
+  }
+  
+  # Get optimal nu
+  Sigma0_logdet = determinant(Sigma0)$modulus
+  if(missing(nu)){
     
-    if(!is.null(colnames(Sigma0))){
-      results[[v]] = 
-        data.frame(variable = colnames(Sigma0),
-                   mean = numeric(p),
-                   sd = numeric(p),
-                   lower = numeric(p),
-                   upper = numeric(p),
-                   v = numeric(p))
+    I_m_P = diag(p) - Proj_mat
+    if(missing(cl)){
+      wtilde_1 = 
+        sapply(1:nrow(prior_draws),
+               function(i){
+                 exp(-0.5 * tcrossprod(prior_draws[i,],prior_draws[i,] %*% I_m_P))
+               })
     }else{
-      results[[v]] = 
-        data.frame(variable = paste0("v",1:ncol(Sigma0)),
-                   mean = numeric(p),
-                   sd = numeric(p),
-                   lower = numeric(p),
-                   upper = numeric(p),
-                   v = numeric(p))
+      clusterExport(cl,c("prior_draws","I_m_P"),envir = environment())
+      wtilde_1 = 
+        parSapply(cl,
+                  1:ndraws,
+                  function(i){
+                    exp(-0.5 * tcrossprod(prior_draws[i,],prior_draws[i,] %*% I_m_P))
+                  })
     }
+    non_nu_term = 
+      -0.5 * Sigma0_logdet -
+      0.5 * drop( crossprod(Mean0,Sigma0_inv %*% Mean0) )
     
-    
-    Sigma_inv = Sigma0_inv + v_sequence[v] * (diag(p) - Proj_mat)
+    if(missing(cl)){
+      get_BF = function(nu){
+        Z_nu = mean(sapply(wtilde_1,function(x)x^nu))
+        
+        Sigma_inv = Sigma0_inv + nu * I_m_P
+        Sigma =  chol2inv(chol(Sigma_inv))
+        Mean = drop(Sigma %*% Sigma0_inv %*% Mean0)
+        
+        non_nu_term -
+          0.5 * determinant(Sigma_inv)$modulus +
+          0.5 * drop( crossprod(Mean,Sigma_inv %*% Mean) ) - 
+          log(Z_nu)
+      }
+    }else{
+      clusterExport(cl,
+                    c("wtilde_1","Sigma0_inv","Mean0","non_nu_term"),
+                    envir = environment())
+      get_BF = function(nu){
+        Z_nu = mean(parSapply(cl,wtilde_1,function(x)x^nu))
+        
+        Sigma_inv = Sigma0_inv + nu * I_m_P
+        Sigma =  chol2inv(chol(Sigma_inv))
+        Mean = drop(Sigma %*% Sigma0_inv %*% Mean0)
+        
+        non_nu_term -
+          0.5 * determinant(Sigma_inv)$modulus +
+          0.5 * drop( crossprod(Mean,Sigma_inv %*% Mean) ) - 
+          log(Z_nu)
+      }
+    }
+    lower_bound = 0
+    nu = upper_bound = 5
+    safety = 0
+    while( ( abs(nu - upper_bound) / upper_bound < 1e-3) & (safety < 25)){
+      upper_bound = 2 * upper_bound
+      opt = optimize(get_BF,
+                     interval = c(lower_bound,upper_bound),
+                     maximum = TRUE)
+      nu = opt$maximum
+      BF_nu_0 = exp(opt$objective)
+      
+      Sigma_inv = Sigma0_inv + nu * I_m_P
+      Sigma =  chol2inv(chol(Sigma_inv))
+      Mean = drop(Sigma %*% Sigma0_inv %*% Mean0)
+    }
+  }else{
+    Sigma_inv = Sigma0_inv + nu * I_m_P
     Sigma =  chol2inv(chol(Sigma_inv))
     Mean = drop(Sigma %*% Sigma0_inv %*% Mean0)
     
-    results[[v]][,2] = Mean
-    results[[v]][,3] = sqrt(diag(Sigma))
-    results[[v]][,4] = qnorm(CI_level/2, Mean, sqrt(diag(Sigma)))
-    results[[v]][,5] = qnorm(1 - CI_level/2, Mean, sqrt(diag(Sigma)))
-    results[[v]][,6] = v_sequence[v]
+    BF_nu_0 =
+      exp(
+        -0.5 * Sigma0_logdet -
+          0.5 * drop( crossprod(Mean0,Sigma0_inv %*% Mean0) ) -
+          0.5 * determinant(Sigma_inv)$modulus +
+          0.5 * drop( crossprod(Mean,Sigma_inv %*% Mean) ) - 
+          log(mean(sapply(wtilde_1,function(x)x^nu)))
+      )
   }
   
-  results = do.call(rbind,results)
-  if(!is.null(colnames(Sigma0))){
-    results = 
-      rbind(data.frame(variable = colnames(Sigma0),
-                       mean = Mean0,
-                       sd = sqrt(diag(Sigma0)),
-                       lower = qnorm(CI_level/2,Mean0,sqrt(diag(Sigma0))),
-                       upper = qnorm(1 - CI_level/2,Mean0,sqrt(diag(Sigma0))),
-                       v = 0.0),
-            results)
-  }else{
-    results = 
-      rbind(data.frame(variable = paste0("v",1:ncol(Sigma0)),
-                       mean = Mean0,
-                       sd = sqrt(diag(Sigma0)),
-                       lower = qnorm(CI_level/2,Mean0,sqrt(diag(Sigma0))),
-                       upper = qnorm(1 - CI_level/2,Mean0,sqrt(diag(Sigma0))),
-                       v = 0.0),
-            results)
-  }
+  results[,2] = Mean
+  results[,3] = sqrt(diag(Sigma))
+  results[,4] = qnorm(CI_level/2, Mean, sqrt(diag(Sigma)))
+  results[,5] = qnorm(1 - CI_level/2, Mean, sqrt(diag(Sigma)))
+  
   colnames(results)[4:5] = 
     c(paste0(CI_level/2 * 100,"%"),
       paste0((1-CI_level/2) * 100,"%"))
-  class(results) = c("subset_fixed","subset_asymp_fixed","data.frame")
-  rownames(results) = NULL
+  
+  results = list(summary = results)
+  results$nu = nu
+  results$BF_favoring_nu = as.numeric(BF_nu_0)
+  
+  
+  class(results) = c("subset_fixed","subset_asymp_fixed")
   return(results)
 }
 
