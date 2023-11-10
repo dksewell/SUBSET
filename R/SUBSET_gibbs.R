@@ -339,7 +339,8 @@ SUBSET_gibbs = function(Mean0,
              Sigma0 = Sigma0,
              P_phi = P,
              prior_phi = prior_phi,
-             nu = nu)
+             nu = nu,
+             prior_draws = prior_draws)
   class(ret) = c("subset_gibbs", "subset_asymp_gibbs")
   return(ret)
 }
