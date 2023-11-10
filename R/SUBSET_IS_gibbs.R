@@ -418,6 +418,11 @@ SUBSET_IS_gibbs = function(draws0,
     if(verbose) setTxtProgressBar(pb,it)
   }
   
+  tab = 
+    prop.table(
+      table(c(1:length(phi_sequence),samples[,p + 1])) - 1
+    )
+  
   samples[,p + 1] = 
     phi_sequence[samples[,p + 1]]
   
@@ -425,10 +430,6 @@ SUBSET_IS_gibbs = function(draws0,
   ################
   
   # Create output object
-  tab = 
-    prop.table(
-      table(samples[,p + 1])
-    )
   
   ret = list(samples = samples,
              acc_rate = acc_rate,
