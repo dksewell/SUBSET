@@ -10,13 +10,12 @@
 #' @param x Object of class "subset_gibbs", returned by 
 #' the function SUBSET_gibbs().
 #' @param type character denoting traceplots ("trace"), 
-#' cumulative mean plots ("cummean"), histograms 
-#' of the model parameters ("theta"), or a histogram 
-#' of the projection matrix parameter ("phi").
+#' cumulative mean plots ("cummean"), or histograms 
+#' of the model parameters ("theta").
 #' @param burnin The number of initial samples to disregard before 
 #' plotting histograms
 #' @param include_prior Superimpose the marginal prior 
-#' densities on the histograms if type = "theta" or "phi".
+#' densities on the histograms if type = "theta".
 #' @param plotting_args List of additional graphical parameters for primary plot.
 #' @param legend_args List of additional graphical parameters for legend.
 #' @param prior_args List of additional graphical parameters for superimposed prior plot.
@@ -25,7 +24,7 @@
 
 
 plot.subset_gibbs = function(x,
-                             type = c("trace","cummean","theta","phi")[1],
+                             type = c("trace","cummean","theta")[1],
                              burnin,
                              include_prior = TRUE,
                              plotting_args,
@@ -157,35 +156,57 @@ plot.subset_gibbs = function(x,
         cat("\nHit RETURN for next plot\n")
         readline()
       }else{
-        if(include_prior){
-          margin = par()$mar
-          layout(matrix(1:2,1,2),widths = c(3,1))
-          par(mar = c(5.1,4.1,1,0.5))
-          barplot(t(x$phi_pmf[,2:3]),
-                  beside = TRUE,
-                  col = gray(c(0.25,0.75)),
-                  names.arg = prettyNum(x$phi_pmf[,1],digits = 3,format = "g"))
-          par(mar = rep(0.1,4))
-          plot(0,type='n',bty='n',xaxt='n',yaxt='n',xlab='',ylab='')
+        
+        if("subset_asymp_gibbs" %in% class(x)){
           
-          bp_legend_args = 
-            list(x = "topleft",
-                 bty = 'n',
-                 pch = 15,
-                 cex = 2,
-                 pt.cex = 2,
-                 col = gray(c(0.25,0.75)),
-                 legend = c("Prior","Posterior"))
-          if(!missing(legend_args)){
-            for(j in names(legend_args)) bp_legend_args[[j]] = legend_args[[j]]
+          hist_args = 
+            list(x = x$samples[(burnin+1):nrow(x$samples),j],
+                 freq = FALSE,
+                 yaxt = 'n',
+                 ylab = '',
+                 main = '',
+                 xlab = colnames(x$samples)[j])
+          
+          if(!missing(plotting_args)){
+            for(j in names(plotting_args)) hist_args[[j]] = plotting_args[[j]]
           }
-          do.call(legend,bp_legend_args)
-          layout(matrix(1,1,1))
-          par(mar = margin)
+          
+          do.call(hist,hist_args)
+          
         }else{
-          barplot(x$phi_pmf[,3],
-                  names.arg = prettyNum(x$phi_pmf[,1],digits = 3,format = "g"))
+          
+          if(include_prior){
+            margin = par()$mar
+            layout(matrix(1:2,1,2),widths = c(3,1))
+            par(mar = c(5.1,4.1,1,0.5))
+            barplot(t(x$phi_pmf[,2:3]),
+                    beside = TRUE,
+                    col = gray(c(0.25,0.75)),
+                    names.arg = prettyNum(x$phi_pmf[,1],digits = 3,format = "g"))
+            par(mar = rep(0.1,4))
+            plot(0,type='n',bty='n',xaxt='n',yaxt='n',xlab='',ylab='')
+            
+            bp_legend_args = 
+              list(x = "topleft",
+                   bty = 'n',
+                   pch = 15,
+                   cex = 2,
+                   pt.cex = 2,
+                   col = gray(c(0.25,0.75)),
+                   legend = c("Prior","Posterior"))
+            if(!missing(legend_args)){
+              for(j in names(legend_args)) bp_legend_args[[j]] = legend_args[[j]]
+            }
+            do.call(legend,bp_legend_args)
+            layout(matrix(1,1,1))
+            par(mar = margin)
+          }else{
+            barplot(x$phi_pmf[,3],
+                    names.arg = prettyNum(x$phi_pmf[,1],digits = 3,format = "g"))
+          }
+          
         }
+        
       }
     }
   }
