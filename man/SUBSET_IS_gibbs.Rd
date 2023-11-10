@@ -7,24 +7,21 @@ projection matrix}
 \usage{
 SUBSET_IS_gibbs(
   draws0,
-  pi0_samples,
   P_phi = c("power", "geometric")[1],
   prior_phi,
+  n_draws = nrow(draws0$posterior),
   phi_sequence = 10,
-  v_sequence = seq(0.25, 5, by = 0.25),
-  min_ESS = 1/2 * nrow(draws0),
-  n_u_values = 100,
-  n_draws = nrow(draws0),
+  nu,
+  nu_max,
+  min_ESS = 1/10 * nrow(draws0$posterior),
   verbose = TRUE,
   cl
 )
 }
 \arguments{
-\item{draws0}{matrix. The posterior draws
-corresponding to the base prior.}
-
-\item{pi0_samples}{Samples of the model parameters
-from the \emph{base prior} (not including phi)}
+\item{draws0}{named list with names 'posterior' and 'prior'.
+Each ought to be a matrix of posterior or prior draws (each row is a draw),
+all of which should correspond to the base prior.}
 
 \item{P_phi}{Either (1) a function taking in a scalar and returning
 a projection matrix for the model parameters; or (2) "power"
@@ -37,15 +34,16 @@ span((1,1,...)',(x^1,x^2,...)').}
 should provide the quantile function, and prior_phi$d() should provide
 the density function.}
 
-\item{v_sequence}{vector of non-negative values for exponential shrinkage.  Higher
-implies more shrinkage.}
+\item{n_draws}{integer giving the number of 2-block Gibbs samples desired}
 
-\item{min_ESS}{integer.  Minimum number of effective sample size to get
-u value. WARNING:
-Don't make this too high, or you risk not representing the full parameter space well.}
+\item{phi_sequence}{Either integer giving the number of evenly spaced quantiles to
+discretize the space of phi (using prior_phi$q), or else a vector of values of phi}
 
-\item{n_u_values}{Number of values to try for u, the hyperparameter of the
-proposal distribution that shrinks towards the linear subspace}
+\item{nu}{shrinkage parameter.  If missing, the optimal nu via Bayes factors will be used}
+
+\item{nu_max}{maximum value of nu to be considered.}
+
+\item{min_ESS}{integer.  Minimum number of effective sample size in considering values of nu.}
 
 \item{verbose}{logical. Should any output be provided?}
 
@@ -54,16 +52,17 @@ proposal distribution that shrinks towards the linear subspace}
 \value{
 Object of class "subset_gibbs", "subset_is_gibbs", with the following structure:
 \itemize{
-\item samples - 3-dim array.  First index is the samples,
-second index is the variable, and third index is the
-value of v (the exponential tilting parameter)
-\item acc_rate: numeric giving the acceptance rate for phi
-\item draws0
-\item pi0_samples
+\item samples - matrix of posterior draws from the 2-block Gibbs sampler. Each
+row is a posterior draw.  The last column corresponds to phi.
+\item acc_rate - numeric giving the acceptance rate for phi
+\item draws0 - original posterior and prior draws (under base prior)
 \item P_phi
 \item prior_phi
-\item phi_pmf - probability mass function for \phi
-\item v_sequence
+\item phi_pmf - matrix with columns giving the values of phi, the prior probability,
+and the posterior probability
+\item nu - either the value of nu supplied by user or the value selected by maximizing
+the Bayes factor where phi is set to the prior mode.
+\item IS_ESS - the effective sample sizes for the importance samplers for each value of phi
 }
 }
 \description{
@@ -81,4 +80,90 @@ using an exponential tilted prior that shrinks the
 parameters towards a linear subspace for a given projection
 matrix.
 \emph{Note that that the parameter space must be convex.} (It usually is.)
+}
+\examples{
+# Simulate where truth lies far from subspace
+set.seed(2023)
+theta_true = c(1,1.5)
+N = 100
+ndraws = 1e4
+draws0 = list()
+# y ~ N(mu, I_2)
+y = mvtnorm::rmvnorm(N,theta_true,diag(2))
+# mu ~ N(0,2.5^2 * I_2)
+prior_cov = 2.5^2 * diag(2)
+# Draw from base prior
+draws0$prior = 
+  mvtnorm::rmvnorm(ndraws, numeric(2), 2.5^2 * diag(2))
+# Draw from posterior (under base prior)
+post_cov = 
+  chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+post_mean = 
+  post_cov \%*\% diag(2) \%*\% (N * colMeans(y))
+draws0$posterior = 
+  mvtnorm::rmvnorm(ndraws, post_mean, post_cov)
+
+# Create projection matrix as a function of phi
+P_phi = function(phi) Proj(c(1,phi))
+# Create prior on phi
+prior_phi = list(d = function(x) dgamma(x,shape = 50, rate = 50 - 1),
+                 q = function(p) qgamma(p, shape = 50, rate = 50 - 1),
+                 r = function(n) rgamma(n, shape = 50, rate = 50 - 1))
+
+if(FALSE){
+  # Optionally can do this in parallel
+  library(parallel)
+  cl = makeCluster(10)
+  tilted_post_off_subspace = 
+    SUBSET_IS_gibbs(draws0 = draws0,
+                    P_phi = P_phi,
+                    prior_phi = prior_phi,
+                    n_draws = 1e4,
+                    cl = cl)
+  stopCluster(cl)
+}else{
+  tilted_post_off_subspace = 
+    SUBSET_IS_gibbs(draws0 = draws0,
+                    P_phi = P_phi,
+                    prior_phi = prior_phi,
+                    n_draws = 1e4)
+}
+tilted_post_off_subspace_summary = 
+  summary(tilted_post_off_subspace)
+sum((colMeans(draws0$posterior) - theta_true)^2) # MSE for posterior mean under base prior
+sum((tilted_post_off_subspace_summary$Estimate[1:2] - theta_true)^2) # MSE for posterior mean under subset prior
+
+
+# Now the truth lies near the subspace
+set.seed(2023)
+theta_true = c(1.2,1.25)
+N = 100
+ndraws = 1e4
+draws0 = list()
+# y ~ N(mu, I_2)
+y = mvtnorm::rmvnorm(N,theta_true,diag(2))
+# mu ~ N(0,2.5^2 * I_2)
+prior_cov = 2.5^2 * diag(2)
+# Draw from base prior
+draws0$prior = 
+  mvtnorm::rmvnorm(ndraws, numeric(2), 2.5^2 * diag(2))
+# Draw from posterior (under base prior)
+post_cov = 
+  chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+post_mean = 
+  post_cov \%*\% diag(2) \%*\% (N * colMeans(y))
+draws0$posterior = 
+  mvtnorm::rmvnorm(ndraws, post_mean, post_cov)
+
+tilted_post_near_subspace = 
+  SUBSET_IS_gibbs(draws0 = draws0,
+                  P_phi = P_phi,
+                  prior_phi = prior_phi,
+                  n_draws = 1e4)
+tilted_post_near_subspace_summary = 
+  summary(tilted_post_near_subspace)
+sum((colMeans(draws0$posterior) - theta_true)^2) # MSE for posterior mean under base prior
+sum((tilted_post_near_subspace_summary$Estimate[1:2] - theta_true)^2) # MSE for posterior mean under subset prior
+
+
 }

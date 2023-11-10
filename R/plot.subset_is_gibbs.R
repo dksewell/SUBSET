@@ -22,29 +22,6 @@
 #' @export
 
 
-if(FALSE){
-  library(parallel)
-  x0 = readRDS("C:/Users/dksewell/Downloads/object.RDS")
-  x0$nu
-  v_seq = seq(0,1.5*x0$nu,l = 11)[-1]
-  cl = makeCluster(length(v_seq))
-  clusterEvalQ(cl,{
-    library(SUBSET)
-    source("C:/Users/dksewell/Documents/SUBSET/R/SUBSET_IS_gibbs.R")
-    source("C:/Users/dksewell/Documents/SUBSET/R/summary.subset_gibbs.R")
-  })
-  clusterExport(cl,c("v_seq","x0"))
-  x = 
-    parLapply(cl,
-              1:length(v_seq),
-              function(v){
-                SUBSET_IS_gibbs(draws0 = x0$draws0,
-                                P_phi = x0$P_phi,
-                                prior_phi = x0$prior_phi,
-                                nu = v_seq[v],
-                                n_draws = 1e4)
-              })
-}
 
 plot.subset_is_gibbs = function(x,
                                 type = c("trace","cummean","theta","phi","transition")[1],

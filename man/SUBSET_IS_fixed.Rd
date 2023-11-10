@@ -7,48 +7,54 @@ projection matrix}
 \usage{
 SUBSET_IS_fixed(
   draws0,
-  Proj_mat = Proj(matrix(1, ncol(Sigma0), 1)),
-  v_sequence = seq(0.25, 5, by = 0.25),
+  Proj_mat = Proj(matrix(1, ncol(draws0), 1)),
   CI_level = 0.95,
-  min_ESS = 1/2 * nrow(draws0),
-  n_u_values = 100,
-  verbose = TRUE
+  nu,
+  nu_max,
+  min_ESS = 1/10 * nrow(draws0$posterior),
+  verbose = TRUE,
+  cl
 )
 }
 \arguments{
-\item{draws0}{matrix. The posterior draws
-corresponding to the base prior.}
+\item{draws0}{named list with names 'posterior' and 'prior'.
+Each ought to be a matrix of posterior or prior draws (each row is a draw),
+all of which should correspond to the base prior.}
 
 \item{Proj_mat}{matrix.  Projection matrix for the
 desired linear subspace you wish to shrink towards.}
 
-\item{v_sequence}{vector of positive values. See details.}
-
-\item{CI_level}{numeric between (0,1). Level of the
+\item{CI_level}{numeric in (0,1). Level of the
 posterior credible interval.}
 
-\item{min_ESS}{integer.  Minimum number of effective sample size. WARNING:
-Don't make this too high, or you risk not representing the full parameter space well.}
+\item{nu}{shrinkage parameter.  If missing, the optimal nu via Bayes factors will be used}
 
-\item{n_u_values}{Number of values to try for u, the hyperparameter of the
-proposal distribution that shrinks towards the linear subspace.}
+\item{nu_max}{maximum value of nu to be considered.}
+
+\item{min_ESS}{integer.  Minimum number of effective sample size in considering values of nu.}
 
 \item{verbose}{logical. Should any output be provided?}
+
+\item{cl}{optional object of class c("SOCKcluster", "cluster") generated from parallel::makeCluster.}
 }
 \value{
-Object of class "subset_fixed", "subset_IS_fixed", with named elements summary
-having the following structure:
+Object of class "subset_fixed", "subset_IS_fixed", with the following named elements:
+\itemize{
+\item summary, a data frame with the following structure:
 \itemize{
 \item variable - Variable names extracted from colnames(Sigma0)
 \item mean - Posterior mean
 \item \link{(1-CI_level)/2}$\% - lower CI bound
 \item \link{1 - (1-CI_level)/2}$\% - upper CI bound
-\item v - SUBSET hyperparameter (shrinkage strength)
-\item ESS - Effective sample size for the importance sampling
-\item u - the maximum u providing at ESS >= ESS_min
 }
-and is_draws, which is a list of, for each v, draws from the importance distribution
-and the corresponding importance weights.
+\item nu the SUBSET shrinkage parameter either fixed by the user or selected by Bayes factor
+\item ESS the effective sample size
+\item BF_favoring_nu The Bayes factor in favor of shrinkage vs. no shrinkage
+\item proposal_draws Draws input by user (posterior draws under the base prior).
+\item is_weights Importance sampling weights corresponding to the proposal draws under the
+SUBSET prior
+\item base_prior_draws Draws input by the user (prior draws under the base prior).
+}
 }
 \description{
 SUBSET_IS_fixed() will perform importance sampling
@@ -70,26 +76,66 @@ corresponds to the base prior with no shrinkage.
 \emph{Note that that the parameter space must be convex.} (It usually is.)
 }
 \examples{
+# Simulate where truth lies far from subspace
+set.seed(2023)
 theta_true = c(1,1.5)
-N = 50
+N = 100
+ndraws = 1e5
+draws0 = list()
+# y ~ N(mu, I_2)
 y = mvtnorm::rmvnorm(N,theta_true,diag(2))
-P = Proj(c(1,1))
-posterior_Sigma = function(nu){
-  chol2inv(chol((N+1) * diag(2) + nu * (diag(2) - P)))
-}
-posterior_mu = function(nu){
-  N * posterior_Sigma(nu) \%*\% colMeans(y)
-}
-ndraws = 1e4
-draws0 = 
-  mvtnorm::rmvnorm(ndraws,posterior_mu(0),posterior_Sigma(0))
-tilted_post = 
-  SUBSET_IS_fixed(draws0,
-                  Proj_mat = P,
-                  v_sequence = seq(5,50,by = 5),
-                  CI_level = 0.95,
-                  min_ESS = 1/2 * nrow(draws0),
-                  n_u_values = 100,
-                  verbose = TRUE)
-tilted_post$summary
+# mu ~ N(0,2.5^2 * I_2)
+prior_cov = 2.5^2 * diag(2)
+# Draw from base prior
+draws0$prior = 
+  mvtnorm::rmvnorm(ndraws, numeric(2), 2.5^2 * diag(2))
+# Draw from posterior (under base prior)
+post_cov = 
+  chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+post_mean = 
+  post_cov \%*\% diag(2) \%*\% (N * colMeans(y))
+draws0$posterior = 
+  mvtnorm::rmvnorm(ndraws, post_mean, post_cov)
+
+tilted_post_off_subspace = 
+  SUBSET_IS_fixed(draws0, 
+                  Proj_mat = Proj(c(1,1)))
+tilted_post_off_subspace$nu # The shrinkage parameter selected by Bayes factor
+tilted_post_off_subspace$BF_favoring_nu # The Bayes factor favoring nu = tilted_post$nu vs. nu = 0
+tilted_post_off_subspace$ESS # Effective sample size
+tilted_post_off_subspace$summary
+sum((colMeans(draws0$posterior) - theta_true)^2) # MSE for posterior mean under base prior
+sum((tilted_post_off_subspace$summary$posterior_mean - theta_true)^2) # MSE for posterior mean under subset prior
+
+# Now the truth lies near on the subspace
+set.seed(2023)
+theta_true = c(1.2,1.25)
+N = 100
+ndraws = 1e5
+draws0 = list()
+# y ~ N(mu, I_2)
+y = mvtnorm::rmvnorm(N,theta_true,diag(2))
+# mu ~ N(0,2.5^2 * I_2)
+prior_cov = 2.5^2 * diag(2)
+# Draw from base prior
+draws0$prior = 
+  mvtnorm::rmvnorm(ndraws, numeric(2), 2.5^2 * diag(2))
+# Draw from posterior (under base prior)
+post_cov = 
+  chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+post_mean = 
+  post_cov \%*\% diag(2) \%*\% (N * colMeans(y))
+draws0$posterior = 
+  mvtnorm::rmvnorm(ndraws, post_mean, post_cov)
+
+tilted_post_near_subspace = 
+  SUBSET_IS_fixed(draws0, 
+                  Proj_mat = Proj(c(1,1)))
+tilted_post_near_subspace$nu # The shrinkage parameter selected by Bayes factor
+tilted_post_near_subspace$BF_favoring_nu # The Bayes factor favoring nu = tilted_post$nu vs. nu = 0
+tilted_post_near_subspace$ESS # Effective sample size
+tilted_post_near_subspace$summary
+sum((colMeans(draws0$posterior) - theta_true)^2) # MSE for posterior mean under base prior
+sum((tilted_post_near_subspace$summary$posterior_mean - theta_true)^2) # MSE for posterior mean under subset prior
+
 }
