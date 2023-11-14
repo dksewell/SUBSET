@@ -8,10 +8,12 @@ projection matrix}
 SUBSET_fixed(
   Mean0,
   Sigma0,
+  prior_draws,
   Proj_mat = Proj(matrix(1, ncol(Sigma0), 1)),
-  v_sequence = seq(0.25, 5, by = 0.25),
   CI_level = 0.95,
-  verbose = FALSE
+  nu,
+  nu_max,
+  cl
 )
 }
 \arguments{
@@ -23,16 +25,20 @@ matrix corresponding to the base prior. NOTE: The
 variable names are extracted from Sigma0, so use
 colnames(Sigma0) = ...}
 
+\item{prior_draws}{matrix of prior draws (each row is a draw),
+corresponding to the base prior.}
+
 \item{Proj_mat}{matrix.  Projection matrix for the
 desired linear subspace you wish to shrink towards.}
-
-\item{v_sequence}{vector of positive values. See details.}
 
 \item{CI_level}{numeric between (0,1). Level of the
 posterior credible interval.}
 
-\item{verbose}{logical. Should any output be provided?  Note that
-this is typically very fast, so usually not needed.}
+\item{nu}{shrinkage parameter.  If missing, the optimal nu via Bayes factors will be used}
+
+\item{nu_max}{maximum value of nu to be considered.}
+
+\item{cl}{optional object of class c("SOCKcluster", "cluster") generated from parallel::makeCluster.}
 }
 \value{
 Object of class "subset_fixed", "subset_asymp_fixed", "data.frame" with the
@@ -68,9 +74,62 @@ higher values imply more shrinkage of the posterior while \eqn{v=0}
 corresponds to the base prior with no shrinkage.
 }
 \examples{
-post_mean_from_pi0 = c(1,1.5)
-post_cov_from_pi0 = diag(c(1,3))
-P = Proj(rep(1,2))
-SUBSET_fixed(Mean0 = post_mean_from_pi0, Sigma = post_cov_from_pi0, Proj_mat = P, v_sequence = c(0.5,100))
+# Simulate where truth lies far from subspace
+set.seed(2023)
+theta_true = c(1,1.5)
+N = 100
+ndraws = 1e5
+# y ~ N(mu, I_2)
+y = mvtnorm::rmvnorm(N,theta_true,diag(2))
+# mu ~ N(0,2.5^2 * I_2)
+prior_cov = 2.5^2 * diag(2)
+# Draw from base prior
+prior_draws = 
+  mvtnorm::rmvnorm(ndraws, numeric(2), prior_cov)
+# Get posterior parameters (under base prior)
+Sigma0 = 
+  chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+Mean0 = 
+  Sigma0 \%*\% diag(2) \%*\% (N * colMeans(y))
+
+tilted_post_off_subspace = 
+  SUBSET_fixed(Mean0 = Mean0,
+               Sigma0 = Sigma0,
+               prior_draws = prior_draws, 
+               Proj_mat = Proj(c(1,1)))
+tilted_post_off_subspace$nu # The shrinkage parameter selected by Bayes factor
+tilted_post_off_subspace$BF_favoring_nu # The Bayes factor favoring nu = tilted_post$nu vs. nu = 0
+tilted_post_off_subspace$summary
+sum((Mean0 - theta_true)^2) # MSE for posterior mean under base prior
+sum((tilted_post_off_subspace$summary$posterior_mean - theta_true)^2) # MSE for posterior mean under subset prior
+
+# Now the truth lies near on the subspace
+set.seed(2023)
+theta_true = c(1.2,1.25)
+N = 100
+ndraws = 1e5
+# y ~ N(mu, I_2)
+y = mvtnorm::rmvnorm(N,theta_true,diag(2))
+# mu ~ N(0,2.5^2 * I_2)
+prior_cov = 2.5^2 * diag(2)
+# Draw from base prior
+prior_draws = 
+  mvtnorm::rmvnorm(ndraws, numeric(2), prior_cov)
+# Get posterior parameters (under base prior)
+Sigma0 = 
+  chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
+Mean0 = 
+  Sigma0 \%*\% diag(2) \%*\% (N * colMeans(y))
+
+tilted_post_near_subspace = 
+  SUBSET_fixed(Mean0 = Mean0,
+               Sigma0 = Sigma0,
+               prior_draws = prior_draws, 
+               Proj_mat = Proj(c(1,1)))
+tilted_post_near_subspace$nu # The shrinkage parameter selected by Bayes factor
+tilted_post_near_subspace$BF_favoring_nu # The Bayes factor favoring nu = tilted_post$nu vs. nu = 0
+tilted_post_near_subspace$summary
+sum((Mean0 - theta_true)^2) # MSE for posterior mean under base prior
+sum((tilted_post_near_subspace$summary$posterior_mean - theta_true)^2) # MSE for posterior mean under subset prior
 
 }

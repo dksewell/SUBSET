@@ -94,7 +94,7 @@ y = mvtnorm::rmvnorm(N,theta_true,diag(2))
 prior_cov = 2.5^2 * diag(2)
 # Draw from base prior
 draws0$prior = 
-  mvtnorm::rmvnorm(ndraws, numeric(2), 2.5^2 * diag(2))
+  mvtnorm::rmvnorm(ndraws, numeric(2), prior_cov)
 # Draw from posterior (under base prior)
 post_cov = 
   chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))
@@ -146,7 +146,7 @@ y = mvtnorm::rmvnorm(N,theta_true,diag(2))
 prior_cov = 2.5^2 * diag(2)
 # Draw from base prior
 draws0$prior = 
-  mvtnorm::rmvnorm(ndraws, numeric(2), 2.5^2 * diag(2))
+  mvtnorm::rmvnorm(ndraws, numeric(2), prior_cov)
 # Draw from posterior (under base prior)
 post_cov = 
   chol2inv(chol( N * diag(2) + chol2inv(chol(prior_cov)) ))

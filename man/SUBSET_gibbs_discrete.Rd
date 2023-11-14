@@ -8,12 +8,13 @@ projection matrix}
 SUBSET_gibbs_discrete(
   Mean0,
   Sigma0,
+  prior_draws,
   n_draws,
-  pi0_samples,
   P_phi = c("power", "geometric")[1],
-  prior_phi,
   unique_phi,
-  v_sequence = seq(0.25, 5, by = 0.25),
+  prior_phi,
+  nu,
+  nu_max,
   verbose = TRUE
 )
 }
@@ -26,11 +27,11 @@ matrix corresponding to the base prior. NOTE: The
 variable names are extracted from Sigma0, so use
 colnames(Sigma0) = ...}
 
+\item{prior_draws}{Samples of the model parameters
+from the \emph{prior} (not including phi)}
+
 \item{n_draws}{positive integer of how many posterior
 samples are desired.}
-
-\item{pi0_samples}{Samples of the model parameters
-from the \emph{prior} (not including phi)}
 
 \item{P_phi}{Either (1) a function taking in a scalar and returning
 a projection matrix for the model parameters; or (2) "power"
@@ -39,12 +40,13 @@ span((1,1,...)',(1^x,2^x,...)'); or (3) "geometric" in
 which case the projection matrix will corrspond to
 span((1,1,...)',(x^1,x^2,...)').}
 
-\item{prior_phi}{list with named argument "r".  prior_phi$r(n)
-should provide n random draws from the prior on phi.}
-
 \item{unique_phi}{vector of the finite values the phi can take}
 
-\item{v_sequence}{vector of positive values. See details.}
+\item{prior_phi}{numeric vector of probabilities for unique_phi}
+
+\item{nu}{shrinkage parameter.  If missing, the optimal nu via Bayes factors will be used}
+
+\item{nu_max}{maximum value of nu to be considered.}
 
 \item{verbose}{logical. Should any output be provided?}
 }
@@ -52,16 +54,13 @@ should provide n random draws from the prior on phi.}
 Object of class "subset_gibbs", "subset_asymp_gibbs",
 with the following structure:
 \itemize{
-\item samples - 3-dim array.  First index is the samples,
-second index is the variable, and third index is the
-value of v (the exponential tilting parameter)
+\item samples - matrix of posterior draws from the 2-block Gibbs sampler. Each
+row is a posterior draw.  The last column corresponds to phi.
 \item acc_rate: numeric giving the acceptance rate for phi
 \item Mean0
 \item Sigma0
-\item pi0_samples
 \item P_phi
 \item prior_phi
-\item v_sequence
 }
 }
 \description{

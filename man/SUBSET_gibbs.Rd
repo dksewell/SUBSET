@@ -8,11 +8,12 @@ projection matrix}
 SUBSET_gibbs(
   Mean0,
   Sigma0,
+  prior_draws,
   n_draws,
-  pi0_samples,
   P_phi = c("power", "geometric")[1],
   prior_phi,
-  v_sequence = seq(0.25, 5, by = 0.25),
+  nu,
+  nu_max,
   Z_approximation = list(df = 10 + 1, phi_range = NULL),
   verbose = TRUE,
   cl
@@ -27,11 +28,11 @@ matrix corresponding to the base prior. NOTE: The
 variable names are extracted from Sigma0, so use
 colnames(Sigma0) = ...}
 
+\item{prior_draws}{matrix of prior draws (each row is a draw),
+corresponding to the base prior.}
+
 \item{n_draws}{positive integer of how many posterior
 samples are desired.}
-
-\item{pi0_samples}{Samples of the model parameters
-from the * base prior* (not including phi)}
 
 \item{P_phi}{Either (1) a function taking in a scalar and returning
 a projection matrix for the model parameters; or (2) "power"
@@ -43,15 +44,20 @@ span((1,1,...)',(x^1,x^2,...)').}
 \item{prior_phi}{list with named argument "r".  prior_phi$r(n)
 should provide n random draws from the prior on phi.}
 
-\item{v_sequence}{vector of positive values. See details.}
+\item{nu}{shrinkage parameter.  If missing, the optimal nu via Bayes factors will be used}
+
+\item{nu_max}{maximum value of nu to be considered.}
 
 \item{Z_approximation}{If set to be NULL, Z will be
 evaluated "exactly" using the pi0_samples.  Otherwise a list
 must be provided in order to approximate Z(phi) via
 natural cubic splines.  If the latter, the list must
 have named arguments df, the degrees of freedom (see
-ns()), and phi_range, a vector of length 2 giving the
-lower and upper bound of \eqn{\phi}.  phi_range is
+ns()); phi_range, a vector of length 2 giving the
+lower and upper bound of \eqn{\phi}; and optionally an integer named
+seq_length giving the number of training points along phi_range to
+train the spline regression model (if missing, the default is twice the
+degrees of freedom).  phi_range is also
 optional, and if left missing will be obtained from
 the range of prior_phi(1000).}
 
@@ -63,16 +69,13 @@ the range of prior_phi(1000).}
 Object of class "subset_gibbs", "subset_asymp_gibbs",
 with the following structure:
 \itemize{
-\item samples - 3-dim array.  First index is the samples,
-second index is the variable, and third index is the
-value of v (the exponential tilting parameter)
+\item samples - matrix of posterior draws from the 2-block Gibbs sampler. Each
+row is a posterior draw.  The last column corresponds to phi.
 \item acc_rate: numeric giving the acceptance rate for phi
 \item Mean0
 \item Sigma0
-\item pi0_samples
 \item P_phi
 \item prior_phi
-\item v_sequence
 }
 }
 \description{
