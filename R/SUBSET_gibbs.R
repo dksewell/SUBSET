@@ -200,14 +200,18 @@ SUBSET_gibbs = function(Mean0,
           log(Z_nu)
       }
     }
+    if(missing(nu_max)) nu_max = Inf
     lower_bound = 0
-    nu = upper_bound = 5
+    nu = upper_bound = min(5,nu_max/10)
     safety = 0
-    while( ( abs(nu - upper_bound) / upper_bound < 1e-3) & (safety < 25)){
-      upper_bound = 2 * upper_bound
+    while( ( abs(nu - upper_bound) / upper_bound < 1e-3) & 
+           (safety < 25) &
+           (upper_bound < nu_max) ){
+      upper_bound = min(nu_max,2 * upper_bound)
       opt = optimize(get_BF,
                      interval = c(lower_bound,upper_bound),
                      maximum = TRUE)
+      lower_bound = upper_bound
       nu = opt$maximum
     }
   }

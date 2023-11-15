@@ -305,10 +305,12 @@ SUBSET_IS_gibbs = function(draws0,
     }
     if(missing(nu_max)){
       nu_lower_bound = 0
-      nu_max = nu_upper_bound = 5
+      nu_max = nu_upper_bound = min(5,nu_max / 10)
       safety = 0
-      while( ( abs(nu_max - nu_upper_bound) / nu_upper_bound < 1e-3) & safety < 25){
-        nu_upper_bound = 2 * nu_upper_bound
+      while( ( abs(nu_max - nu_upper_bound) / nu_upper_bound < 1e-3) & 
+             (safety < 25) &
+             (nu_upper_bound < nu_max) ){
+        nu_upper_bound = min(nu_max,2 * nu_upper_bound)
         nu_max = 
           optimize(find_max_nu,
                    interval = c(nu_lower_bound,
