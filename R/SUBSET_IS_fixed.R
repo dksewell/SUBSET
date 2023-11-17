@@ -207,7 +207,8 @@ SUBSET_IS_fixed = function(draws0,
       nu_max = nu_upper_bound = 5
       safety = 0
       if(verbose) cat("\n---Finding maximum nu to satisfy ESS constraints\n")
-      while( ( abs(nu_max - nu_upper_bound) / nu_upper_bound < 1e-3) & safety < 25){
+      while( ( abs(nu_max - nu_upper_bound) / nu_upper_bound < 1e-3) & 
+             (safety < 25) ){
         nu_upper_bound = 2 * nu_upper_bound
         nu_max = 
           optimize(find_max_nu,

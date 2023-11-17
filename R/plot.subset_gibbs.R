@@ -20,6 +20,7 @@
 #' @param legend_args List of additional graphical parameters for legend.
 #' @param prior_args List of additional graphical parameters for superimposed prior plot.
 #' @param prior_density_args List of arguments to be passed to density() for density estimation.
+#' @export plot.subset_gibbs
 #' @export
 
 

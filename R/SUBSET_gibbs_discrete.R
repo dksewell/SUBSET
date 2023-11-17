@@ -82,7 +82,8 @@ SUBSET_gibbs_discrete = function(Mean0,
                                  prior_phi,
                                  nu,
                                  nu_max,
-                                 verbose = TRUE){
+                                 verbose = TRUE,
+                                 cl){
   
   p = ncol(prior_draws)
   acc_rate = numeric(1)

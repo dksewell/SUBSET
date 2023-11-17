@@ -4,6 +4,7 @@
 #' @param object subset_gibbs object
 #' @param level the level of credible intervals to be provided
 #' @param v Optional. The desired value of v, i.e., the exponential tilting parameter. 
+#' @export summary.subset_gibbs
 #' @export
 
 
